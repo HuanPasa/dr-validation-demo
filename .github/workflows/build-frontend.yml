@@ -1,0 +1,49 @@
+name: Build Frontend Image
+
+on:
+  push:
+    branches:
+      - main
+
+
+jobs:
+
+  build:
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+
+    steps:
+
+    - name: Checkout source
+      uses: actions/checkout@v4
+
+
+    - name: Login GHCR
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+
+    - name: Build Image
+      run: |
+
+        IMAGE_NAME=$(echo "ghcr.io/${{ github.repository }}/frontend" | tr '[:upper:]' '[:lower:]')
+
+        docker build \
+        -t $IMAGE_NAME:latest \
+        ./frontend
+
+
+    - name: Push Image
+      run: |
+
+        IMAGE_NAME=$(echo "ghcr.io/${{ github.repository }}/frontend" | tr '[:upper:]' '[:lower:]')
+
+        docker push $IMAGE_NAME:latest
