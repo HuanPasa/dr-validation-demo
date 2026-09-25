@@ -1,7 +1,9 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import psycopg2
 import os
+
+from s3_client import upload_to_s3
 
 
 app = FastAPI(
@@ -10,7 +12,10 @@ app = FastAPI(
 )
 
 
-# supaya nanti FE React bisa akses
+# =========================
+# CORS
+# =========================
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,8 +25,9 @@ app.add_middleware(
 )
 
 
+
 # =========================
-# DATABASE CONNECTION
+# DATABASE
 # =========================
 
 def db_connect():
@@ -34,16 +40,17 @@ def db_connect():
     )
 
 
+
 # =========================
-# HEALTH CHECK
+# HEALTH
 # =========================
 
 @app.get("/")
 def home():
 
     return {
-        "application": "DR Validation Backend",
-        "status": "running"
+        "application":"DR Validation Backend",
+        "status":"running"
     }
 
 
@@ -51,27 +58,53 @@ def home():
 @app.get("/health")
 def health():
 
+    result = {
+        "application":"DR Validation Backend",
+        "database":"UNKNOWN",
+        "s3":"UNKNOWN"
+    }
+
+
+    # test DB
+
     try:
 
         conn = db_connect()
         conn.close()
 
-        return {
-            "status": "UP",
-            "database": "CONNECTED"
-        }
+        result["database"]="CONNECTED"
 
     except Exception as e:
 
-        return {
-            "status": "DOWN",
-            "database": str(e)
-        }
+        result["database"]=str(e)
+
+
+
+    # test S3
+
+    try:
+
+        from s3_client import get_s3_client
+
+        s3 = get_s3_client()
+
+        s3.list_buckets()
+
+        result["s3"]="CONNECTED"
+
+
+    except Exception as e:
+
+        result["s3"]=str(e)
+
+
+
+    return result
 
 
 
 # =========================
-# READ CUSTOMER
+# GET CUSTOMER
 # =========================
 
 @app.get("/customer")
@@ -80,21 +113,48 @@ def get_customer():
     conn = db_connect()
     cur = conn.cursor()
 
+
     cur.execute(
         """
-        SELECT id,name,email,company,created_at
+        SELECT
+        id,
+        name,
+        email,
+        company,
+        created_at
+
         FROM customer
+
         ORDER BY id
         """
     )
 
+
     rows = cur.fetchall()
+
 
     cur.close()
     conn.close()
 
 
-    return rows
+    data=[]
+
+
+    for row in rows:
+
+        data.append(
+            {
+                "id":row[0],
+                "name":row[1],
+                "email":row[2],
+                "company":row[3],
+                "created_at":row[4]
+            }
+        )
+
+
+    return data
+
 
 
 
@@ -109,15 +169,18 @@ def create_customer(
     company:str
 ):
 
-    conn = db_connect()
-    cur = conn.cursor()
+    conn=db_connect()
+    cur=conn.cursor()
 
 
     cur.execute(
         """
         INSERT INTO customer
         (name,email,company)
-        VALUES(%s,%s,%s)
+
+        VALUES
+        (%s,%s,%s)
+
         RETURNING id
         """,
         (
@@ -128,10 +191,11 @@ def create_customer(
     )
 
 
-    customer_id = cur.fetchone()[0]
+    customer_id=cur.fetchone()[0]
 
 
     conn.commit()
+
 
     cur.close()
     conn.close()
@@ -143,6 +207,7 @@ def create_customer(
         "id":customer_id
 
     }
+
 
 
 
@@ -158,17 +223,19 @@ def update_customer(
     company:str
 ):
 
-    conn = db_connect()
-    cur = conn.cursor()
+    conn=db_connect()
+    cur=conn.cursor()
 
 
     cur.execute(
         """
         UPDATE customer
+
         SET
         name=%s,
         email=%s,
         company=%s
+
         WHERE id=%s
         """,
         (
@@ -181,6 +248,7 @@ def update_customer(
 
 
     conn.commit()
+
 
     cur.close()
     conn.close()
@@ -195,6 +263,8 @@ def update_customer(
 
 
 
+
+
 # =========================
 # DELETE CUSTOMER
 # =========================
@@ -202,8 +272,8 @@ def update_customer(
 @app.delete("/customer/{customer_id}")
 def delete_customer(customer_id:int):
 
-    conn = db_connect()
-    cur = conn.cursor()
+    conn=db_connect()
+    cur=conn.cursor()
 
 
     cur.execute(
@@ -216,6 +286,7 @@ def delete_customer(customer_id:int):
 
 
     conn.commit()
+
 
     cur.close()
     conn.close()
@@ -230,21 +301,96 @@ def delete_customer(customer_id:int):
 
 
 
+
 # =========================
-# FILE UPLOAD
+# UPLOAD FILE TO S3
 # =========================
 
 @app.post("/upload")
-def upload_file(
-    file: UploadFile = File(...)
+def upload_document(
+    file:UploadFile = File(...)
 ):
 
-    # sementara hanya validasi upload
-    # nanti diganti boto3 -> Ceph RGW
+    result = upload_to_s3(
+        file.file,
+        file.filename
+    )
+
+
+    # simpan metadata
+
+    conn=db_connect()
+    cur=conn.cursor()
+
+
+    cur.execute(
+        """
+        INSERT INTO documents
+        (
+        filename,
+        bucket,
+        object_key
+        )
+
+        VALUES
+        (%s,%s,%s)
+        """,
+        (
+            file.filename,
+            result["bucket"],
+            result["object"]
+        )
+    )
+
+
+    conn.commit()
+
+
+    cur.close()
+    conn.close()
+
+
 
     return {
 
+        "status":"uploaded",
         "filename":file.filename,
-        "status":"received"
+        "storage":result
 
     }
+
+@app.get("/documents")
+def get_documents():
+
+    conn=db_connect()
+    cur=conn.cursor()
+
+    cur.execute(
+        """
+        SELECT
+        id,
+        filename,
+        bucket,
+        object_key,
+        uploaded_at
+        FROM documents
+        ORDER BY id DESC
+        """
+    )
+
+    rows=cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+
+    return [
+        {
+            "id":r[0],
+            "filename":r[1],
+            "bucket":r[2],
+            "object_key":r[3],
+            "uploaded_at":r[4]
+        }
+        for r in rows
+    ]
