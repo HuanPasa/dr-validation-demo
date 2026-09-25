@@ -5,7 +5,6 @@ on:
     branches:
       - main
 
-
 jobs:
 
   build:
@@ -15,7 +14,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-
 
     steps:
 
@@ -31,14 +29,18 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
 
 
-    - name: Build image
+    - name: Build Image
       run: |
+        IMAGE_NAME=$(echo "ghcr.io/${{ github.repository }}/backend" | tr '[:upper:]' '[:lower:]')
+        
         docker build \
-        -t ghcr.io/${{ github.repository }}/backend:latest \
+        -t $IMAGE_NAME:latest \
         ./backend
 
 
-    - name: Push image
+    - name: Push Image
       run: |
+        IMAGE_NAME=$(echo "ghcr.io/${{ github.repository }}/backend" | tr '[:upper:]' '[:lower:]')
+
         docker push \
-        ghcr.io/${{ github.repository }}/backend:latest
+        $IMAGE_NAME:latest
