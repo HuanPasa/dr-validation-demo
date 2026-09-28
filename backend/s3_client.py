@@ -73,3 +73,14 @@ def check_bucket():
     )
 
     return True
+
+
+def delete_from_s3(bucket, object_key):
+    s3 = get_s3_client()
+
+    s3.delete_object(
+        Bucket=bucket,
+        Key=object_key
+    )
+
+    return True

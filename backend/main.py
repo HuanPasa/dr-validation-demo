@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 import psycopg2
@@ -8,32 +8,33 @@ import uuid
 from s3_client import (
     upload_to_s3,
     object_exists,
-    check_bucket
+    check_bucket,
+    delete_from_s3
 )
 
 
 app = FastAPI(
     title="DR Validation Backend",
-    version="1.1"
+    version="1.2"
 )
 
 
-# =========================
+# =========================================================
 # CORS
-# =========================
+# =========================================================
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# =========================
-# DATABASE
-# =========================
+# =========================================================
+# DATABASE CONNECTION
+# =========================================================
 
 def db_connect():
     return psycopg2.connect(
@@ -44,22 +45,22 @@ def db_connect():
     )
 
 
-# =========================
+# =========================================================
 # HOME
-# =========================
+# =========================================================
 
 @app.get("/")
 def home():
     return {
         "application": "DR Validation Backend",
-        "version": "1.1",
+        "version": "1.2",
         "status": "running"
     }
 
 
-# =========================
+# =========================================================
 # HEALTH CHECK
-# =========================
+# =========================================================
 
 @app.get("/health")
 def health():
@@ -80,7 +81,7 @@ def health():
     except Exception as e:
         result["database"] = f"FAILED: {str(e)}"
 
-    # Ceph RGW bucket
+    # Ceph RGW / S3
     try:
         check_bucket()
 
@@ -92,9 +93,9 @@ def health():
     return result
 
 
-# =========================
-# READ CUSTOMER
-# =========================
+# =========================================================
+# CUSTOMER - READ
+# =========================================================
 
 @app.get("/customer")
 def get_customer():
@@ -132,9 +133,9 @@ def get_customer():
     ]
 
 
-# =========================
-# CREATE CUSTOMER
-# =========================
+# =========================================================
+# CUSTOMER - CREATE
+# =========================================================
 
 @app.post("/customer")
 def create_customer(
@@ -146,45 +147,58 @@ def create_customer(
     conn = db_connect()
     cur = conn.cursor()
 
-    cur.execute(
-        """
-        INSERT INTO customer
-        (
-            name,
-            email,
-            company
+    try:
+
+        cur.execute(
+            """
+            INSERT INTO customer
+            (
+                name,
+                email,
+                company
+            )
+            VALUES
+            (
+                %s,
+                %s,
+                %s
+            )
+            RETURNING id
+            """,
+            (
+                name,
+                email,
+                company
+            )
         )
-        VALUES
-        (
-            %s,
-            %s,
-            %s
+
+        customer_id = cur.fetchone()[0]
+
+        conn.commit()
+
+        return {
+            "status": "created",
+            "id": customer_id
+        }
+
+    except Exception as e:
+
+        conn.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create customer: {str(e)}"
         )
-        RETURNING id
-        """,
-        (
-            name,
-            email,
-            company
-        )
-    )
 
-    customer_id = cur.fetchone()[0]
+    finally:
 
-    conn.commit()
-
-    cur.close()
-    conn.close()
-
-    return {
-        "status": "created",
-        "id": customer_id
-    }
+        cur.close()
+        conn.close()
 
 
-# =========================
-# UPDATE CUSTOMER
-# =========================
+# =========================================================
+# CUSTOMER - UPDATE
+# =========================================================
 
 @app.put("/customer/{customer_id}")
 def update_customer(
@@ -197,37 +211,62 @@ def update_customer(
     conn = db_connect()
     cur = conn.cursor()
 
-    cur.execute(
-        """
-        UPDATE customer
-        SET
-            name = %s,
-            email = %s,
-            company = %s
-        WHERE id = %s
-        """,
-        (
-            name,
-            email,
-            company,
-            customer_id
+    try:
+
+        cur.execute(
+            """
+            UPDATE customer
+            SET
+                name = %s,
+                email = %s,
+                company = %s
+            WHERE id = %s
+            """,
+            (
+                name,
+                email,
+                company,
+                customer_id
+            )
         )
-    )
 
-    conn.commit()
+        if cur.rowcount == 0:
 
-    cur.close()
-    conn.close()
+            conn.rollback()
 
-    return {
-        "status": "updated",
-        "id": customer_id
-    }
+            raise HTTPException(
+                status_code=404,
+                detail="Customer not found"
+            )
+
+        conn.commit()
+
+        return {
+            "status": "updated",
+            "id": customer_id
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        conn.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update customer: {str(e)}"
+        )
+
+    finally:
+
+        cur.close()
+        conn.close()
 
 
-# =========================
-# DELETE CUSTOMER
-# =========================
+# =========================================================
+# CUSTOMER - DELETE
+# =========================================================
 
 @app.delete("/customer/{customer_id}")
 def delete_customer(
@@ -237,95 +276,141 @@ def delete_customer(
     conn = db_connect()
     cur = conn.cursor()
 
-    cur.execute(
-        """
-        DELETE FROM customer
-        WHERE id = %s
-        """,
-        (
-            customer_id,
+    try:
+
+        cur.execute(
+            """
+            DELETE FROM customer
+            WHERE id = %s
+            """,
+            (
+                customer_id,
+            )
         )
-    )
 
-    conn.commit()
+        if cur.rowcount == 0:
 
-    cur.close()
-    conn.close()
+            conn.rollback()
 
-    return {
-        "status": "deleted",
-        "id": customer_id
-    }
+            raise HTTPException(
+                status_code=404,
+                detail="Customer not found"
+            )
+
+        conn.commit()
+
+        return {
+            "status": "deleted",
+            "id": customer_id
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+
+        conn.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete customer: {str(e)}"
+        )
+
+    finally:
+
+        cur.close()
+        conn.close()
 
 
-# =========================
-# UPLOAD FILE TO S3
-# =========================
+# =========================================================
+# DOCUMENT - UPLOAD TO S3
+# =========================================================
 
 @app.post("/upload")
 def upload_document(
     file: UploadFile = File(...)
 ):
 
-    # supaya nama file yang sama tidak overwrite
+    # UUID supaya file dengan nama sama tidak overwrite
     object_key = (
-        str(uuid.uuid4())
-        + "-"
-        + file.filename
+        f"{uuid.uuid4()}-{file.filename}"
     )
 
-    result = upload_to_s3(
-        file.file,
-        object_key
-    )
+    try:
 
-    # simpan metadata ke PostgreSQL
+        # Upload object ke Ceph RGW
+        result = upload_to_s3(
+            file.file,
+            object_key
+        )
 
+    except Exception as e:
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to upload file to S3: {str(e)}"
+        )
+
+
+    # Simpan metadata ke PostgreSQL
     conn = db_connect()
     cur = conn.cursor()
 
-    cur.execute(
-        """
-        INSERT INTO documents
-        (
-            filename,
-            bucket,
-            object_key
+    try:
+
+        cur.execute(
+            """
+            INSERT INTO documents
+            (
+                filename,
+                bucket,
+                object_key
+            )
+            VALUES
+            (
+                %s,
+                %s,
+                %s
+            )
+            RETURNING id
+            """,
+            (
+                file.filename,
+                result["bucket"],
+                result["object"]
+            )
         )
-        VALUES
-        (
-            %s,
-            %s,
-            %s
+
+        document_id = cur.fetchone()[0]
+
+        conn.commit()
+
+        return {
+            "status": "uploaded",
+            "id": document_id,
+            "filename": file.filename,
+            "bucket": result["bucket"],
+            "object_key": result["object"]
+        }
+
+    except Exception as e:
+
+        conn.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"File uploaded to S3 but metadata insert failed: {str(e)}"
         )
-        RETURNING id
-        """,
-        (
-            file.filename,
-            result["bucket"],
-            result["object"]
-        )
-    )
 
-    document_id = cur.fetchone()[0]
+    finally:
 
-    conn.commit()
-
-    cur.close()
-    conn.close()
-
-    return {
-        "status": "uploaded",
-        "id": document_id,
-        "filename": file.filename,
-        "bucket": result["bucket"],
-        "object_key": result["object"]
-    }
+        cur.close()
+        conn.close()
 
 
-# =========================
-# LIST DOCUMENT METADATA
-# =========================
+# =========================================================
+# DOCUMENT - LIST METADATA FROM DATABASE
+# =========================================================
 
 @app.get("/documents")
 def get_documents():
@@ -363,9 +448,9 @@ def get_documents():
     ]
 
 
-# =========================
-# VERIFY DATABASE + S3
-# =========================
+# =========================================================
+# DOCUMENT - VERIFY DATABASE VS S3
+# =========================================================
 
 @app.get("/documents/verify")
 def verify_documents():
@@ -408,16 +493,20 @@ def verify_documents():
                 object_key
             )
 
-            s3_status = (
-                "AVAILABLE"
-                if exists
-                else "MISSING"
-            )
+            if exists:
+                s3_status = "AVAILABLE"
+                consistency = "CONSISTENT"
+
+            else:
+                s3_status = "MISSING"
+                consistency = "INCONSISTENT"
 
         except Exception as e:
 
             exists = False
             s3_status = f"ERROR: {str(e)}"
+            consistency = "INCONSISTENT"
+
 
         results.append(
             {
@@ -430,14 +519,114 @@ def verify_documents():
                 "database_record": True,
                 "s3_object": exists,
 
-                "status": (
-                    "CONSISTENT"
-                    if exists
-                    else "INCONSISTENT"
-                ),
-
-                "s3_status": s3_status
+                "s3_status": s3_status,
+                "status": consistency
             }
         )
 
     return results
+
+
+# =========================================================
+# DOCUMENT - DELETE FROM S3 + DATABASE
+# =========================================================
+
+@app.delete("/documents/{document_id}")
+def delete_document(
+    document_id: int
+):
+
+    conn = db_connect()
+    cur = conn.cursor()
+
+    try:
+
+        # Ambil metadata dari PostgreSQL
+        cur.execute(
+            """
+            SELECT
+                filename,
+                bucket,
+                object_key
+            FROM documents
+            WHERE id = %s
+            """,
+            (
+                document_id,
+            )
+        )
+
+        row = cur.fetchone()
+
+        if not row:
+
+            raise HTTPException(
+                status_code=404,
+                detail="Document not found"
+            )
+
+
+        filename = row[0]
+        bucket = row[1]
+        object_key = row[2]
+
+
+        # Hapus object asli dari Ceph RGW
+        try:
+
+            delete_from_s3(
+                bucket,
+                object_key
+            )
+
+        except Exception as e:
+
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to delete object from S3: {str(e)}"
+            )
+
+
+        # Setelah S3 berhasil, hapus metadata dari DB
+        cur.execute(
+            """
+            DELETE FROM documents
+            WHERE id = %s
+            """,
+            (
+                document_id,
+            )
+        )
+
+        conn.commit()
+
+
+        return {
+            "status": "deleted",
+            "id": document_id,
+            "filename": filename,
+            "bucket": bucket,
+            "object_key": object_key
+        }
+
+
+    except HTTPException:
+
+        conn.rollback()
+        raise
+
+
+    except Exception as e:
+
+        conn.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete document: {str(e)}"
+        )
+
+
+    finally:
+
+        cur.close()
+        conn.close()
