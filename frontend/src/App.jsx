@@ -44,7 +44,8 @@ function App() {
           errorMessage = errorData.detail;
         }
       } catch {
-        errorMessage = `${response.status} ${response.statusText}`;
+        errorMessage =
+          `${response.status} ${response.statusText}`;
       }
 
       throw new Error(errorMessage);
@@ -55,7 +56,7 @@ function App() {
 
 
   // =========================================================
-  // LOAD HEALTH
+  // HEALTH
   // =========================================================
 
   const loadHealth = async () => {
@@ -313,7 +314,7 @@ function App() {
 
 
   // =========================================================
-  // UPLOAD DOCUMENT TO S3
+  // UPLOAD DOCUMENT
   // =========================================================
 
   const uploadDocument = async () => {
@@ -371,16 +372,105 @@ function App() {
 
 
   // =========================================================
-  // DELETE DOCUMENT FROM S3 + DATABASE
+  // DOWNLOAD DOCUMENT
+  // =========================================================
+
+  const downloadDocument = (id) => {
+    const downloadUrl =
+      `${API_URL}/documents/${id}/download`;
+
+    const link =
+      document.createElement("a");
+
+    link.href = downloadUrl;
+
+    document.body.appendChild(link);
+
+    link.click();
+
+    document.body.removeChild(link);
+  };
+
+
+  // =========================================================
+  // RENAME DOCUMENT
+  // =========================================================
+
+  const renameDocument = async (
+    id,
+    currentFilename
+  ) => {
+    const newFilename = window.prompt(
+      "Enter new filename:",
+      currentFilename
+    );
+
+    if (newFilename === null) {
+      return;
+    }
+
+    const cleanFilename =
+      newFilename.trim();
+
+    if (!cleanFilename) {
+      setMessage(
+        "New filename cannot be empty."
+      );
+
+      return;
+    }
+
+    if (
+      cleanFilename === currentFilename
+    ) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const params =
+        new URLSearchParams({
+          new_filename:
+            cleanFilename,
+        });
+
+      await request(
+        `${API_URL}/documents/${id}/rename?${params.toString()}`,
+        {
+          method: "PUT",
+        }
+      );
+
+      setMessage(
+        `"${currentFilename}" renamed to "${cleanFilename}".`
+      );
+
+      await loadDocuments();
+
+    } catch (error) {
+      setMessage(
+        `Rename failed: ${error.message}`
+      );
+
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+  // =========================================================
+  // DELETE DOCUMENT
   // =========================================================
 
   const deleteDocument = async (
     id,
     filename
   ) => {
-    const confirmed = window.confirm(
-      `Delete "${filename}"?\n\nThis will delete the object from Ceph RGW and remove its metadata from PostgreSQL.`
-    );
+    const confirmed =
+      window.confirm(
+        `Delete "${filename}"?\n\nThis will delete the object from Ceph RGW and remove its metadata from PostgreSQL.`
+      );
 
     if (!confirmed) {
       return;
@@ -415,7 +505,7 @@ function App() {
 
 
   // =========================================================
-  // REFRESH ALL DATA
+  // REFRESH ALL
   // =========================================================
 
   const refreshAll = async () => {
@@ -439,7 +529,7 @@ function App() {
 
 
   // =========================================================
-  // HEALTH STATUS
+  // STATUS HELPER
   // =========================================================
 
   const isConnected = (value) =>
@@ -496,15 +586,13 @@ function App() {
 
 
       {/* =====================================================
-          MAIN CONTENT
+          CONTENT
       ====================================================== */}
 
       <div className="container py-4">
 
 
-        {/* ===================================================
-            MESSAGE
-        ==================================================== */}
+        {/* MESSAGE */}
 
         {message && (
 
@@ -525,9 +613,7 @@ function App() {
         )}
 
 
-        {/* ===================================================
-            STATUS HEADER
-        ==================================================== */}
+        {/* STATUS HEADER */}
 
         <div className="d-flex justify-content-between align-items-center mb-3">
 
@@ -555,9 +641,7 @@ function App() {
         </div>
 
 
-        {/* ===================================================
-            STATUS CARDS
-        ==================================================== */}
+        {/* STATUS CARDS */}
 
         <div className="row g-3 mb-4">
 
@@ -604,7 +688,7 @@ function App() {
 
 
         {/* ===================================================
-            CUSTOMER
+            CUSTOMER SECTION
         ==================================================== */}
 
         <div className="row g-4">
@@ -759,27 +843,14 @@ function App() {
                     <thead>
 
                       <tr>
-
-                        <th>
-                          ID
-                        </th>
-
-                        <th>
-                          Name
-                        </th>
-
-                        <th>
-                          Email
-                        </th>
-
-                        <th>
-                          Company
-                        </th>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Company</th>
 
                         <th className="text-end">
                           Action
                         </th>
-
                       </tr>
 
                     </thead>
@@ -840,9 +911,7 @@ function App() {
                                       customer
                                     )
                                   }
-                                  disabled={
-                                    loading
-                                  }
+                                  disabled={loading}
                                 >
                                   Edit
                                 </button>
@@ -855,9 +924,7 @@ function App() {
                                       customer.id
                                     )
                                   }
-                                  disabled={
-                                    loading
-                                  }
+                                  disabled={loading}
                                 >
                                   Delete
                                 </button>
@@ -887,7 +954,7 @@ function App() {
 
 
         {/* ===================================================
-            DOCUMENT VALIDATION
+            DOCUMENT SECTION
         ==================================================== */}
 
         <div className="card border-0 shadow-sm mt-4">
@@ -922,8 +989,7 @@ function App() {
                     className="form-control"
                     onChange={(event) =>
                       setFile(
-                        event.target
-                          .files[0]
+                        event.target.files[0]
                       )
                     }
                     disabled={loading}
@@ -955,9 +1021,7 @@ function App() {
 
                   <tr>
 
-                    <th>
-                      ID
-                    </th>
+                    <th>ID</th>
 
                     <th>
                       Filename
@@ -1020,12 +1084,16 @@ function App() {
 
 
                           <td className="fw-semibold">
+
                             {doc.filename}
+
                           </td>
 
 
                           <td>
+
                             {doc.bucket}
+
                           </td>
 
 
@@ -1086,18 +1154,63 @@ function App() {
 
                           <td className="text-end">
 
-                            <button
-                              className="btn btn-outline-danger btn-sm"
-                              onClick={() =>
-                                deleteDocument(
-                                  doc.id,
-                                  doc.filename
-                                )
-                              }
-                              disabled={loading}
-                            >
-                              Delete
-                            </button>
+                            <div className="d-flex justify-content-end gap-2 flex-wrap">
+
+
+                              {/* DOWNLOAD */}
+
+                              <button
+                                className="btn btn-outline-success btn-sm"
+                                onClick={() =>
+                                  downloadDocument(
+                                    doc.id
+                                  )
+                                }
+                                disabled={
+                                  loading ||
+                                  !doc.s3_object
+                                }
+                              >
+                                Download
+                              </button>
+
+
+                              {/* RENAME */}
+
+                              <button
+                                className="btn btn-outline-primary btn-sm"
+                                onClick={() =>
+                                  renameDocument(
+                                    doc.id,
+                                    doc.filename
+                                  )
+                                }
+                                disabled={
+                                  loading ||
+                                  !doc.s3_object
+                                }
+                              >
+                                Rename
+                              </button>
+
+
+                              {/* DELETE */}
+
+                              <button
+                                className="btn btn-outline-danger btn-sm"
+                                onClick={() =>
+                                  deleteDocument(
+                                    doc.id,
+                                    doc.filename
+                                  )
+                                }
+                                disabled={loading}
+                              >
+                                Delete
+                              </button>
+
+
+                            </div>
 
                           </td>
 
@@ -1114,6 +1227,8 @@ function App() {
 
             </div>
 
+
+            {/* DOCUMENT FOOTER */}
 
             <div className="d-flex justify-content-between align-items-center mt-3">
 
@@ -1146,7 +1261,11 @@ function App() {
         ==================================================== */}
 
         <div className="text-center text-muted small py-4">
-          DR Validation Portal • OpenShift Container Platform
+
+          DR Validation Portal
+          {" • "}
+          OpenShift Container Platform
+
         </div>
 
       </div>
@@ -1157,7 +1276,7 @@ function App() {
 
 
 // =========================================================
-// STATUS CARD COMPONENT
+// STATUS CARD
 // =========================================================
 
 function StatusCard({
@@ -1166,6 +1285,7 @@ function StatusCard({
   status,
   healthy,
 }) {
+
   return (
 
     <div className="col-md-4">

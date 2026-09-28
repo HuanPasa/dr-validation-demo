@@ -84,3 +84,44 @@ def delete_from_s3(bucket, object_key):
     )
 
     return True
+
+
+def download_from_s3(bucket, object_key):
+    s3 = get_s3_client()
+
+    return s3.get_object(
+        Bucket=bucket,
+        Key=object_key
+    )
+
+
+def rename_s3_object(
+    bucket,
+    old_object_key,
+    new_object_key
+):
+    s3 = get_s3_client()
+
+    # Copy object lama menjadi object baru
+    s3.copy_object(
+        Bucket=bucket,
+        CopySource={
+            "Bucket": bucket,
+            "Key": old_object_key
+        },
+        Key=new_object_key
+    )
+
+    # Pastikan object baru ada
+    s3.head_object(
+        Bucket=bucket,
+        Key=new_object_key
+    )
+
+    # Hapus object lama
+    s3.delete_object(
+        Bucket=bucket,
+        Key=old_object_key
+    )
+
+    return True

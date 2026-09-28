@@ -1,21 +1,36 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import (
+    FastAPI,
+    UploadFile,
+    File,
+    HTTPException
+)
+
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 import psycopg2
 import os
 import uuid
 
+from urllib.parse import quote
+
 from s3_client import (
     upload_to_s3,
     object_exists,
     check_bucket,
-    delete_from_s3
+    delete_from_s3,
+    download_from_s3,
+    rename_s3_object
 )
 
 
+# =========================================================
+# APPLICATION
+# =========================================================
+
 app = FastAPI(
     title="DR Validation Backend",
-    version="1.2"
+    version="1.3"
 )
 
 
@@ -53,7 +68,7 @@ def db_connect():
 def home():
     return {
         "application": "DR Validation Backend",
-        "version": "1.2",
+        "version": "1.3",
         "status": "running"
     }
 
@@ -71,7 +86,7 @@ def health():
         "s3": "UNKNOWN"
     }
 
-    # PostgreSQL
+    # PostgreSQL health
     try:
         conn = db_connect()
         conn.close()
@@ -81,7 +96,8 @@ def health():
     except Exception as e:
         result["database"] = f"FAILED: {str(e)}"
 
-    # Ceph RGW / S3
+
+    # Ceph RGW health
     try:
         check_bucket()
 
@@ -89,6 +105,7 @@ def health():
 
     except Exception as e:
         result["s3"] = f"FAILED: {str(e)}"
+
 
     return result
 
@@ -103,34 +120,37 @@ def get_customer():
     conn = db_connect()
     cur = conn.cursor()
 
-    cur.execute(
-        """
-        SELECT
-            id,
-            name,
-            email,
-            company,
-            created_at
-        FROM customer
-        ORDER BY id
-        """
-    )
+    try:
 
-    rows = cur.fetchall()
+        cur.execute(
+            """
+            SELECT
+                id,
+                name,
+                email,
+                company,
+                created_at
+            FROM customer
+            ORDER BY id
+            """
+        )
 
-    cur.close()
-    conn.close()
+        rows = cur.fetchall()
 
-    return [
-        {
-            "id": row[0],
-            "name": row[1],
-            "email": row[2],
-            "company": row[3],
-            "created_at": row[4]
-        }
-        for row in rows
-    ]
+        return [
+            {
+                "id": row[0],
+                "name": row[1],
+                "email": row[2],
+                "company": row[3],
+                "created_at": row[4]
+            }
+            for row in rows
+        ]
+
+    finally:
+        cur.close()
+        conn.close()
 
 
 # =========================================================
@@ -191,7 +211,6 @@ def create_customer(
         )
 
     finally:
-
         cur.close()
         conn.close()
 
@@ -231,9 +250,6 @@ def update_customer(
         )
 
         if cur.rowcount == 0:
-
-            conn.rollback()
-
             raise HTTPException(
                 status_code=404,
                 detail="Customer not found"
@@ -247,6 +263,7 @@ def update_customer(
         }
 
     except HTTPException:
+        conn.rollback()
         raise
 
     except Exception as e:
@@ -259,7 +276,6 @@ def update_customer(
         )
 
     finally:
-
         cur.close()
         conn.close()
 
@@ -289,9 +305,6 @@ def delete_customer(
         )
 
         if cur.rowcount == 0:
-
-            conn.rollback()
-
             raise HTTPException(
                 status_code=404,
                 detail="Customer not found"
@@ -305,6 +318,7 @@ def delete_customer(
         }
 
     except HTTPException:
+        conn.rollback()
         raise
 
     except Exception as e:
@@ -317,13 +331,12 @@ def delete_customer(
         )
 
     finally:
-
         cur.close()
         conn.close()
 
 
 # =========================================================
-# DOCUMENT - UPLOAD TO S3
+# DOCUMENT - UPLOAD
 # =========================================================
 
 @app.post("/upload")
@@ -331,14 +344,25 @@ def upload_document(
     file: UploadFile = File(...)
 ):
 
-    # UUID supaya file dengan nama sama tidak overwrite
+    if not file.filename:
+        raise HTTPException(
+            status_code=400,
+            detail="Filename is required"
+        )
+
+
+    # Generate unique S3 object key
     object_key = (
         f"{uuid.uuid4()}-{file.filename}"
     )
 
+
+    # -----------------------------------------------------
+    # Upload file to Ceph RGW
+    # -----------------------------------------------------
+
     try:
 
-        # Upload object ke Ceph RGW
         result = upload_to_s3(
             file.file,
             object_key
@@ -352,7 +376,10 @@ def upload_document(
         )
 
 
-    # Simpan metadata ke PostgreSQL
+    # -----------------------------------------------------
+    # Save metadata to PostgreSQL
+    # -----------------------------------------------------
+
     conn = db_connect()
     cur = conn.cursor()
 
@@ -385,6 +412,7 @@ def upload_document(
 
         conn.commit()
 
+
         return {
             "status": "uploaded",
             "id": document_id,
@@ -393,13 +421,24 @@ def upload_document(
             "object_key": result["object"]
         }
 
+
     except Exception as e:
 
         conn.rollback()
 
+        # Upload sudah terjadi tetapi metadata gagal.
+        # Hapus object agar tidak menjadi orphan object.
+        try:
+            delete_from_s3(
+                result["bucket"],
+                result["object"]
+            )
+        except Exception:
+            pass
+
         raise HTTPException(
             status_code=500,
-            detail=f"File uploaded to S3 but metadata insert failed: {str(e)}"
+            detail=f"Metadata insert failed: {str(e)}"
         )
 
     finally:
@@ -409,7 +448,7 @@ def upload_document(
 
 
 # =========================================================
-# DOCUMENT - LIST METADATA FROM DATABASE
+# DOCUMENT - LIST METADATA
 # =========================================================
 
 @app.get("/documents")
@@ -418,34 +457,39 @@ def get_documents():
     conn = db_connect()
     cur = conn.cursor()
 
-    cur.execute(
-        """
-        SELECT
-            id,
-            filename,
-            bucket,
-            object_key,
-            uploaded_at
-        FROM documents
-        ORDER BY id DESC
-        """
-    )
+    try:
 
-    rows = cur.fetchall()
+        cur.execute(
+            """
+            SELECT
+                id,
+                filename,
+                bucket,
+                object_key,
+                uploaded_at
+            FROM documents
+            ORDER BY id DESC
+            """
+        )
 
-    cur.close()
-    conn.close()
+        rows = cur.fetchall()
 
-    return [
-        {
-            "id": row[0],
-            "filename": row[1],
-            "bucket": row[2],
-            "object_key": row[3],
-            "uploaded_at": row[4]
-        }
-        for row in rows
-    ]
+
+        return [
+            {
+                "id": row[0],
+                "filename": row[1],
+                "bucket": row[2],
+                "object_key": row[3],
+                "uploaded_at": row[4]
+            }
+            for row in rows
+        ]
+
+    finally:
+
+        cur.close()
+        conn.close()
 
 
 # =========================================================
@@ -458,25 +502,31 @@ def verify_documents():
     conn = db_connect()
     cur = conn.cursor()
 
-    cur.execute(
-        """
-        SELECT
-            id,
-            filename,
-            bucket,
-            object_key,
-            uploaded_at
-        FROM documents
-        ORDER BY id DESC
-        """
-    )
+    try:
 
-    rows = cur.fetchall()
+        cur.execute(
+            """
+            SELECT
+                id,
+                filename,
+                bucket,
+                object_key,
+                uploaded_at
+            FROM documents
+            ORDER BY id DESC
+            """
+        )
 
-    cur.close()
-    conn.close()
+        rows = cur.fetchall()
+
+    finally:
+
+        cur.close()
+        conn.close()
+
 
     results = []
+
 
     for row in rows:
 
@@ -486,6 +536,7 @@ def verify_documents():
         object_key = row[3]
         uploaded_at = row[4]
 
+
         try:
 
             exists = object_exists(
@@ -493,18 +544,26 @@ def verify_documents():
                 object_key
             )
 
+
             if exists:
+
                 s3_status = "AVAILABLE"
                 consistency = "CONSISTENT"
 
             else:
+
                 s3_status = "MISSING"
                 consistency = "INCONSISTENT"
+
 
         except Exception as e:
 
             exists = False
-            s3_status = f"ERROR: {str(e)}"
+
+            s3_status = (
+                f"ERROR: {str(e)}"
+            )
+
             consistency = "INCONSISTENT"
 
 
@@ -524,15 +583,18 @@ def verify_documents():
             }
         )
 
+
     return results
 
 
 # =========================================================
-# DOCUMENT - DELETE FROM S3 + DATABASE
+# DOCUMENT - DOWNLOAD
 # =========================================================
 
-@app.delete("/documents/{document_id}")
-def delete_document(
+@app.get(
+    "/documents/{document_id}/download"
+)
+def download_document(
     document_id: int
 ):
 
@@ -541,7 +603,6 @@ def delete_document(
 
     try:
 
-        # Ambil metadata dari PostgreSQL
         cur.execute(
             """
             SELECT
@@ -558,6 +619,7 @@ def delete_document(
 
         row = cur.fetchone()
 
+
         if not row:
 
             raise HTTPException(
@@ -571,7 +633,310 @@ def delete_document(
         object_key = row[2]
 
 
-        # Hapus object asli dari Ceph RGW
+    finally:
+
+        cur.close()
+        conn.close()
+
+
+    # -----------------------------------------------------
+    # Get object from Ceph RGW
+    # -----------------------------------------------------
+
+    try:
+
+        s3_object = download_from_s3(
+            bucket,
+            object_key
+        )
+
+    except Exception as e:
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to download object from S3: {str(e)}"
+        )
+
+
+    body = s3_object["Body"]
+
+
+    content_type = s3_object.get(
+        "ContentType",
+        "application/octet-stream"
+    )
+
+
+    encoded_filename = quote(
+        filename
+    )
+
+
+    # Stream object instead of loading
+    # entire file into backend memory
+    def file_iterator():
+
+        try:
+
+            for chunk in body.iter_chunks(
+                chunk_size=8192
+            ):
+
+                if chunk:
+                    yield chunk
+
+        finally:
+
+            body.close()
+
+
+    return StreamingResponse(
+        file_iterator(),
+        media_type=content_type,
+        headers={
+            "Content-Disposition":
+                f"attachment; filename*=UTF-8''{encoded_filename}"
+        }
+    )
+
+
+# =========================================================
+# DOCUMENT - RENAME
+# =========================================================
+
+@app.put(
+    "/documents/{document_id}/rename"
+)
+def rename_document(
+    document_id: int,
+    new_filename: str
+):
+
+    new_filename = new_filename.strip()
+
+
+    if not new_filename:
+
+        raise HTTPException(
+            status_code=400,
+            detail="New filename cannot be empty"
+        )
+
+
+    conn = db_connect()
+    cur = conn.cursor()
+
+
+    try:
+
+        # -------------------------------------------------
+        # Get existing metadata
+        # -------------------------------------------------
+
+        cur.execute(
+            """
+            SELECT
+                filename,
+                bucket,
+                object_key
+            FROM documents
+            WHERE id = %s
+            """,
+            (
+                document_id,
+            )
+        )
+
+
+        row = cur.fetchone()
+
+
+        if not row:
+
+            raise HTTPException(
+                status_code=404,
+                detail="Document not found"
+            )
+
+
+        old_filename = row[0]
+        bucket = row[1]
+        old_object_key = row[2]
+
+
+        # -------------------------------------------------
+        # Generate new object key
+        # -------------------------------------------------
+
+        new_object_key = (
+            f"{uuid.uuid4()}-{new_filename}"
+        )
+
+
+        # -------------------------------------------------
+        # Rename S3 object
+        #
+        # S3 does not have native rename.
+        # Operation:
+        #
+        # old object
+        #     ↓ COPY
+        # new object
+        #     ↓
+        # delete old object
+        # -------------------------------------------------
+
+        try:
+
+            rename_s3_object(
+                bucket,
+                old_object_key,
+                new_object_key
+            )
+
+        except Exception as e:
+
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to rename S3 object: {str(e)}"
+            )
+
+
+        # -------------------------------------------------
+        # Update PostgreSQL metadata
+        # -------------------------------------------------
+
+        try:
+
+            cur.execute(
+                """
+                UPDATE documents
+                SET
+                    filename = %s,
+                    object_key = %s
+                WHERE id = %s
+                """,
+                (
+                    new_filename,
+                    new_object_key,
+                    document_id
+                )
+            )
+
+
+            conn.commit()
+
+
+        except Exception as e:
+
+            conn.rollback()
+
+            raise HTTPException(
+                status_code=500,
+                detail=f"S3 object renamed but database update failed: {str(e)}"
+            )
+
+
+        return {
+            "status": "renamed",
+
+            "id": document_id,
+
+            "old_filename":
+                old_filename,
+
+            "new_filename":
+                new_filename,
+
+            "bucket":
+                bucket,
+
+            "old_object_key":
+                old_object_key,
+
+            "new_object_key":
+                new_object_key
+        }
+
+
+    except HTTPException:
+
+        conn.rollback()
+        raise
+
+
+    except Exception as e:
+
+        conn.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to rename document: {str(e)}"
+        )
+
+
+    finally:
+
+        cur.close()
+        conn.close()
+
+
+# =========================================================
+# DOCUMENT - DELETE
+# =========================================================
+
+@app.delete(
+    "/documents/{document_id}"
+)
+def delete_document(
+    document_id: int
+):
+
+    conn = db_connect()
+    cur = conn.cursor()
+
+
+    try:
+
+        # -------------------------------------------------
+        # Get document metadata
+        # -------------------------------------------------
+
+        cur.execute(
+            """
+            SELECT
+                filename,
+                bucket,
+                object_key
+            FROM documents
+            WHERE id = %s
+            """,
+            (
+                document_id,
+            )
+        )
+
+
+        row = cur.fetchone()
+
+
+        if not row:
+
+            raise HTTPException(
+                status_code=404,
+                detail="Document not found"
+            )
+
+
+        filename = row[0]
+        bucket = row[1]
+        object_key = row[2]
+
+
+        # -------------------------------------------------
+        # Delete actual object from Ceph RGW
+        # -------------------------------------------------
+
         try:
 
             delete_from_s3(
@@ -587,7 +952,10 @@ def delete_document(
             )
 
 
-        # Setelah S3 berhasil, hapus metadata dari DB
+        # -------------------------------------------------
+        # Delete metadata from PostgreSQL
+        # -------------------------------------------------
+
         cur.execute(
             """
             DELETE FROM documents
@@ -597,6 +965,7 @@ def delete_document(
                 document_id,
             )
         )
+
 
         conn.commit()
 
