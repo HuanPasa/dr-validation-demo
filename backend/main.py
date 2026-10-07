@@ -30,7 +30,7 @@ from s3_client import (
 
 app = FastAPI(
     title="DR Validation Backend",
-    version="1.3"
+    version="1.4"
 )
 
 
@@ -48,15 +48,51 @@ app.add_middleware(
 
 
 # =========================================================
+# ENVIRONMENT
+# =========================================================
+
+def required_env(name: str):
+
+    value = os.getenv(name)
+
+    if not value:
+        raise RuntimeError(
+            f"Environment variable {name} is not configured"
+        )
+
+    return value
+
+
+# =========================================================
 # DATABASE CONNECTION
 # =========================================================
 
 def db_connect():
+
     return psycopg2.connect(
-        host=os.getenv("DB_HOST"),
-        database=os.getenv("DB_NAME"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD")
+
+        host=required_env(
+            "DB_HOST"
+        ),
+
+        port=int(
+            os.getenv(
+                "DB_PORT",
+                "5432"
+            )
+        ),
+
+        database=required_env(
+            "DB_NAME"
+        ),
+
+        user=required_env(
+            "DB_USER"
+        ),
+
+        password=required_env(
+            "DB_PASSWORD"
+        )
     )
 
 
@@ -66,10 +102,23 @@ def db_connect():
 
 @app.get("/")
 def home():
+
     return {
-        "application": "DR Validation Backend",
-        "version": "1.3",
-        "status": "running"
+
+        "application":
+            "DR Validation Backend",
+
+        "version":
+            "1.4",
+
+        "site":
+            os.getenv(
+                "SITE_NAME",
+                "UNKNOWN"
+            ),
+
+        "status":
+            "running"
     }
 
 
@@ -81,30 +130,70 @@ def home():
 def health():
 
     result = {
-        "application": "DR Validation Backend",
-        "database": "UNKNOWN",
-        "s3": "UNKNOWN"
+
+        "application":
+            "DR Validation Backend",
+
+        "site":
+            os.getenv(
+                "SITE_NAME",
+                "UNKNOWN"
+            ),
+
+        "database":
+            "NOT READY",
+
+        "s3":
+            "NOT READY"
     }
 
-    # PostgreSQL health
+
+    # -----------------------------------------------------
+    # PostgreSQL Health
+    # -----------------------------------------------------
+
     try:
+
         conn = db_connect()
+
         conn.close()
 
-        result["database"] = "CONNECTED"
+        result["database"] = (
+            "CONNECTED"
+        )
 
     except Exception as e:
-        result["database"] = f"FAILED: {str(e)}"
+
+        print(
+            f"Database health check failed: {e}"
+        )
+
+        result["database"] = (
+            "NOT READY"
+        )
 
 
-    # Ceph RGW health
+    # -----------------------------------------------------
+    # Ceph RGW Health
+    # -----------------------------------------------------
+
     try:
+
         check_bucket()
 
-        result["s3"] = "CONNECTED"
+        result["s3"] = (
+            "CONNECTED"
+        )
 
     except Exception as e:
-        result["s3"] = f"FAILED: {str(e)}"
+
+        print(
+            f"S3 health check failed: {e}"
+        )
+
+        result["s3"] = (
+            "NOT READY"
+        )
 
 
     return result
@@ -118,6 +207,7 @@ def health():
 def get_customer():
 
     conn = db_connect()
+
     cur = conn.cursor()
 
     try:
@@ -138,6 +228,7 @@ def get_customer():
         rows = cur.fetchall()
 
         return [
+
             {
                 "id": row[0],
                 "name": row[1],
@@ -145,11 +236,14 @@ def get_customer():
                 "company": row[3],
                 "created_at": row[4]
             }
+
             for row in rows
         ]
 
     finally:
+
         cur.close()
+
         conn.close()
 
 
@@ -165,6 +259,7 @@ def create_customer(
 ):
 
     conn = db_connect()
+
     cur = conn.cursor()
 
     try:
@@ -192,14 +287,21 @@ def create_customer(
             )
         )
 
-        customer_id = cur.fetchone()[0]
+        customer_id = (
+            cur.fetchone()[0]
+        )
 
         conn.commit()
 
         return {
-            "status": "created",
-            "id": customer_id
+
+            "status":
+                "created",
+
+            "id":
+                customer_id
         }
+
 
     except Exception as e:
 
@@ -207,11 +309,17 @@ def create_customer(
 
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to create customer: {str(e)}"
+            detail=(
+                "Failed to create "
+                f"customer: {str(e)}"
+            )
         )
 
+
     finally:
+
         cur.close()
+
         conn.close()
 
 
@@ -219,7 +327,9 @@ def create_customer(
 # CUSTOMER - UPDATE
 # =========================================================
 
-@app.put("/customer/{customer_id}")
+@app.put(
+    "/customer/{customer_id}"
+)
 def update_customer(
     customer_id: int,
     name: str,
@@ -228,6 +338,7 @@ def update_customer(
 ):
 
     conn = db_connect()
+
     cur = conn.cursor()
 
     try:
@@ -235,10 +346,12 @@ def update_customer(
         cur.execute(
             """
             UPDATE customer
+
             SET
                 name = %s,
                 email = %s,
                 company = %s
+
             WHERE id = %s
             """,
             (
@@ -249,22 +362,34 @@ def update_customer(
             )
         )
 
+
         if cur.rowcount == 0:
+
             raise HTTPException(
                 status_code=404,
                 detail="Customer not found"
             )
 
+
         conn.commit()
 
+
         return {
-            "status": "updated",
-            "id": customer_id
+
+            "status":
+                "updated",
+
+            "id":
+                customer_id
         }
 
+
     except HTTPException:
+
         conn.rollback()
+
         raise
+
 
     except Exception as e:
 
@@ -272,11 +397,17 @@ def update_customer(
 
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to update customer: {str(e)}"
+            detail=(
+                "Failed to update "
+                f"customer: {str(e)}"
+            )
         )
 
+
     finally:
+
         cur.close()
+
         conn.close()
 
 
@@ -284,12 +415,15 @@ def update_customer(
 # CUSTOMER - DELETE
 # =========================================================
 
-@app.delete("/customer/{customer_id}")
+@app.delete(
+    "/customer/{customer_id}"
+)
 def delete_customer(
     customer_id: int
 ):
 
     conn = db_connect()
+
     cur = conn.cursor()
 
     try:
@@ -297,6 +431,7 @@ def delete_customer(
         cur.execute(
             """
             DELETE FROM customer
+
             WHERE id = %s
             """,
             (
@@ -304,22 +439,34 @@ def delete_customer(
             )
         )
 
+
         if cur.rowcount == 0:
+
             raise HTTPException(
                 status_code=404,
                 detail="Customer not found"
             )
 
+
         conn.commit()
 
+
         return {
-            "status": "deleted",
-            "id": customer_id
+
+            "status":
+                "deleted",
+
+            "id":
+                customer_id
         }
 
+
     except HTTPException:
+
         conn.rollback()
+
         raise
+
 
     except Exception as e:
 
@@ -327,11 +474,17 @@ def delete_customer(
 
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to delete customer: {str(e)}"
+            detail=(
+                "Failed to delete "
+                f"customer: {str(e)}"
+            )
         )
 
+
     finally:
+
         cur.close()
+
         conn.close()
 
 
@@ -345,6 +498,7 @@ def upload_document(
 ):
 
     if not file.filename:
+
         raise HTTPException(
             status_code=400,
             detail="Filename is required"
@@ -352,8 +506,10 @@ def upload_document(
 
 
     # Generate unique S3 object key
+
     object_key = (
-        f"{uuid.uuid4()}-{file.filename}"
+        f"{uuid.uuid4()}-"
+        f"{file.filename}"
     )
 
 
@@ -372,7 +528,10 @@ def upload_document(
 
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to upload file to S3: {str(e)}"
+            detail=(
+                "Failed to upload file "
+                f"to S3: {str(e)}"
+            )
         )
 
 
@@ -381,6 +540,7 @@ def upload_document(
     # -----------------------------------------------------
 
     conn = db_connect()
+
     cur = conn.cursor()
 
     try:
@@ -408,17 +568,31 @@ def upload_document(
             )
         )
 
-        document_id = cur.fetchone()[0]
+
+        document_id = (
+            cur.fetchone()[0]
+        )
+
 
         conn.commit()
 
 
         return {
-            "status": "uploaded",
-            "id": document_id,
-            "filename": file.filename,
-            "bucket": result["bucket"],
-            "object_key": result["object"]
+
+            "status":
+                "uploaded",
+
+            "id":
+                document_id,
+
+            "filename":
+                file.filename,
+
+            "bucket":
+                result["bucket"],
+
+            "object_key":
+                result["object"]
         }
 
 
@@ -426,24 +600,36 @@ def upload_document(
 
         conn.rollback()
 
-        # Upload sudah terjadi tetapi metadata gagal.
-        # Hapus object agar tidak menjadi orphan object.
+
+        # Upload sudah terjadi tetapi
+        # metadata gagal.
+        # Hapus object agar tidak orphan.
+
         try:
+
             delete_from_s3(
                 result["bucket"],
                 result["object"]
             )
+
         except Exception:
+
             pass
+
 
         raise HTTPException(
             status_code=500,
-            detail=f"Metadata insert failed: {str(e)}"
+            detail=(
+                "Metadata insert failed: "
+                f"{str(e)}"
+            )
         )
+
 
     finally:
 
         cur.close()
+
         conn.close()
 
 
@@ -455,6 +641,7 @@ def upload_document(
 def get_documents():
 
     conn = db_connect()
+
     cur = conn.cursor()
 
     try:
@@ -467,15 +654,19 @@ def get_documents():
                 bucket,
                 object_key,
                 uploaded_at
+
             FROM documents
+
             ORDER BY id DESC
             """
         )
+
 
         rows = cur.fetchall()
 
 
         return [
+
             {
                 "id": row[0],
                 "filename": row[1],
@@ -483,12 +674,15 @@ def get_documents():
                 "object_key": row[3],
                 "uploaded_at": row[4]
             }
+
             for row in rows
         ]
+
 
     finally:
 
         cur.close()
+
         conn.close()
 
 
@@ -500,6 +694,7 @@ def get_documents():
 def verify_documents():
 
     conn = db_connect()
+
     cur = conn.cursor()
 
     try:
@@ -512,16 +707,21 @@ def verify_documents():
                 bucket,
                 object_key,
                 uploaded_at
+
             FROM documents
+
             ORDER BY id DESC
             """
         )
 
+
         rows = cur.fetchall()
+
 
     finally:
 
         cur.close()
+
         conn.close()
 
 
@@ -531,9 +731,13 @@ def verify_documents():
     for row in rows:
 
         document_id = row[0]
+
         filename = row[1]
+
         bucket = row[2]
+
         object_key = row[3]
+
         uploaded_at = row[4]
 
 
@@ -547,39 +751,72 @@ def verify_documents():
 
             if exists:
 
-                s3_status = "AVAILABLE"
-                consistency = "CONSISTENT"
+                s3_status = (
+                    "AVAILABLE"
+                )
+
+                consistency = (
+                    "CONSISTENT"
+                )
 
             else:
 
-                s3_status = "MISSING"
-                consistency = "INCONSISTENT"
+                s3_status = (
+                    "MISSING"
+                )
+
+                consistency = (
+                    "INCONSISTENT"
+                )
 
 
         except Exception as e:
 
+            print(
+                "S3 document verification "
+                f"failed: {e}"
+            )
+
             exists = False
 
             s3_status = (
-                f"ERROR: {str(e)}"
+                "ERROR"
             )
 
-            consistency = "INCONSISTENT"
+            consistency = (
+                "INCONSISTENT"
+            )
 
 
         results.append(
             {
-                "id": document_id,
-                "filename": filename,
-                "bucket": bucket,
-                "object_key": object_key,
-                "uploaded_at": uploaded_at,
 
-                "database_record": True,
-                "s3_object": exists,
+                "id":
+                    document_id,
 
-                "s3_status": s3_status,
-                "status": consistency
+                "filename":
+                    filename,
+
+                "bucket":
+                    bucket,
+
+                "object_key":
+                    object_key,
+
+                "uploaded_at":
+                    uploaded_at,
+
+                "database_record":
+                    True,
+
+                "s3_object":
+                    exists,
+
+                "s3_status":
+                    s3_status,
+
+                "status":
+                    consistency
             }
         )
 
@@ -599,6 +836,7 @@ def download_document(
 ):
 
     conn = db_connect()
+
     cur = conn.cursor()
 
     try:
@@ -609,13 +847,16 @@ def download_document(
                 filename,
                 bucket,
                 object_key
+
             FROM documents
+
             WHERE id = %s
             """,
             (
                 document_id,
             )
         )
+
 
         row = cur.fetchone()
 
@@ -629,13 +870,16 @@ def download_document(
 
 
         filename = row[0]
+
         bucket = row[1]
+
         object_key = row[2]
 
 
     finally:
 
         cur.close()
+
         conn.close()
 
 
@@ -654,7 +898,10 @@ def download_document(
 
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to download object from S3: {str(e)}"
+            detail=(
+                "Failed to download object "
+                f"from S3: {str(e)}"
+            )
         )
 
 
@@ -674,6 +921,7 @@ def download_document(
 
     # Stream object instead of loading
     # entire file into backend memory
+
     def file_iterator():
 
         try:
@@ -683,6 +931,7 @@ def download_document(
             ):
 
                 if chunk:
+
                     yield chunk
 
         finally:
@@ -695,7 +944,11 @@ def download_document(
         media_type=content_type,
         headers={
             "Content-Disposition":
-                f"attachment; filename*=UTF-8''{encoded_filename}"
+                (
+                    "attachment; "
+                    "filename*=UTF-8''"
+                    f"{encoded_filename}"
+                )
         }
     )
 
@@ -712,18 +965,24 @@ def rename_document(
     new_filename: str
 ):
 
-    new_filename = new_filename.strip()
+    new_filename = (
+        new_filename.strip()
+    )
 
 
     if not new_filename:
 
         raise HTTPException(
             status_code=400,
-            detail="New filename cannot be empty"
+            detail=(
+                "New filename "
+                "cannot be empty"
+            )
         )
 
 
     conn = db_connect()
+
     cur = conn.cursor()
 
 
@@ -739,7 +998,9 @@ def rename_document(
                 filename,
                 bucket,
                 object_key
+
             FROM documents
+
             WHERE id = %s
             """,
             (
@@ -760,7 +1021,9 @@ def rename_document(
 
 
         old_filename = row[0]
+
         bucket = row[1]
+
         old_object_key = row[2]
 
 
@@ -769,21 +1032,19 @@ def rename_document(
         # -------------------------------------------------
 
         new_object_key = (
-            f"{uuid.uuid4()}-{new_filename}"
+            f"{uuid.uuid4()}-"
+            f"{new_filename}"
         )
 
 
         # -------------------------------------------------
         # Rename S3 object
         #
-        # S3 does not have native rename.
-        # Operation:
+        # S3 does not have native rename:
         #
-        # old object
-        #     ↓ COPY
-        # new object
-        #     ↓
-        # delete old object
+        # COPY old -> new
+        # verify new
+        # delete old
         # -------------------------------------------------
 
         try:
@@ -798,7 +1059,10 @@ def rename_document(
 
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to rename S3 object: {str(e)}"
+                detail=(
+                    "Failed to rename "
+                    f"S3 object: {str(e)}"
+                )
             )
 
 
@@ -811,9 +1075,11 @@ def rename_document(
             cur.execute(
                 """
                 UPDATE documents
+
                 SET
                     filename = %s,
                     object_key = %s
+
                 WHERE id = %s
                 """,
                 (
@@ -833,14 +1099,21 @@ def rename_document(
 
             raise HTTPException(
                 status_code=500,
-                detail=f"S3 object renamed but database update failed: {str(e)}"
+                detail=(
+                    "S3 object renamed but "
+                    "database update failed: "
+                    f"{str(e)}"
+                )
             )
 
 
         return {
-            "status": "renamed",
 
-            "id": document_id,
+            "status":
+                "renamed",
+
+            "id":
+                document_id,
 
             "old_filename":
                 old_filename,
@@ -862,6 +1135,7 @@ def rename_document(
     except HTTPException:
 
         conn.rollback()
+
         raise
 
 
@@ -871,13 +1145,17 @@ def rename_document(
 
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to rename document: {str(e)}"
+            detail=(
+                "Failed to rename "
+                f"document: {str(e)}"
+            )
         )
 
 
     finally:
 
         cur.close()
+
         conn.close()
 
 
@@ -893,6 +1171,7 @@ def delete_document(
 ):
 
     conn = db_connect()
+
     cur = conn.cursor()
 
 
@@ -908,7 +1187,9 @@ def delete_document(
                 filename,
                 bucket,
                 object_key
+
             FROM documents
+
             WHERE id = %s
             """,
             (
@@ -929,7 +1210,9 @@ def delete_document(
 
 
         filename = row[0]
+
         bucket = row[1]
+
         object_key = row[2]
 
 
@@ -948,7 +1231,10 @@ def delete_document(
 
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to delete object from S3: {str(e)}"
+                detail=(
+                    "Failed to delete object "
+                    f"from S3: {str(e)}"
+                )
             )
 
 
@@ -959,6 +1245,7 @@ def delete_document(
         cur.execute(
             """
             DELETE FROM documents
+
             WHERE id = %s
             """,
             (
@@ -971,17 +1258,28 @@ def delete_document(
 
 
         return {
-            "status": "deleted",
-            "id": document_id,
-            "filename": filename,
-            "bucket": bucket,
-            "object_key": object_key
+
+            "status":
+                "deleted",
+
+            "id":
+                document_id,
+
+            "filename":
+                filename,
+
+            "bucket":
+                bucket,
+
+            "object_key":
+                object_key
         }
 
 
     except HTTPException:
 
         conn.rollback()
+
         raise
 
 
@@ -991,11 +1289,15 @@ def delete_document(
 
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to delete document: {str(e)}"
+            detail=(
+                "Failed to delete "
+                f"document: {str(e)}"
+            )
         )
 
 
     finally:
 
         cur.close()
+
         conn.close()

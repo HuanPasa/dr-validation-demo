@@ -2,22 +2,23 @@ import { useEffect, useState } from "react";
 
 
 // =========================================================
-// BACKEND API
-// PR #2 NANTI: dipindahkan ke runtime ConfigMap
+// RUNTIME CONFIG
 // =========================================================
 
-const API_URL =
-  "http://backend-dr-demo.apps.bpsocp.beint.local";
+const API_URL = (
+  window.RUNTIME_CONFIG?.API_URL || ""
+).replace(/\/+$/, "");
 
+
+// =========================================================
+// APPLICATION
+// =========================================================
 
 function App() {
 
-  // =========================================================
-  // STATE
-  // =========================================================
-
   const [health, setHealth] = useState({
     application: "Loading",
+    site: "UNKNOWN",
     database: "Loading",
     s3: "Loading",
   });
@@ -42,7 +43,16 @@ function App() {
   // API HELPER
   // =========================================================
 
-  const request = async (url, options = {}) => {
+  const request = async (
+    url,
+    options = {}
+  ) => {
+
+    if (!API_URL) {
+      throw new Error(
+        "Backend API URL is not configured."
+      );
+    }
 
     const response = await fetch(
       url,
@@ -68,7 +78,6 @@ function App() {
 
         errorMessage =
           `${response.status} ${response.statusText}`;
-
       }
 
       throw new Error(
@@ -105,6 +114,7 @@ function App() {
 
       const failedHealth = {
         application: "FAILED",
+        site: "UNKNOWN",
         database: "FAILED",
         s3: "FAILED",
       };
@@ -143,7 +153,7 @@ function App() {
 
 
   // =========================================================
-  // LOAD DOCUMENTS + VERIFY S3
+  // LOAD DOCUMENTS
   // =========================================================
 
   const loadDocuments = async () => {
@@ -167,13 +177,7 @@ function App() {
 
 
   // =========================================================
-  // AUTOMATIC HEALTH CHECK
-  //
-  // - Check setiap 5 detik
-  // - Kalau DB CONNECTED:
-  //     load customer + documents
-  // - Kalau DB belum ready:
-  //     standby mode
+  // AUTO HEALTH CHECK
   // =========================================================
 
   useEffect(() => {
@@ -201,19 +205,15 @@ function App() {
 
       } else {
 
-        // Jangan tampilkan stale data
-        // ketika DB DR belum ready.
         setCustomers([]);
         setDocuments([]);
       }
     };
 
 
-    // Check langsung ketika page dibuka
     checkApplication();
 
 
-    // Check otomatis setiap 5 detik
     const interval = setInterval(
       checkApplication,
       5000
@@ -233,7 +233,7 @@ function App() {
 
 
   // =========================================================
-  // STATUS HELPERS
+  // STATUS
   // =========================================================
 
   const backendReady =
@@ -252,15 +252,22 @@ function App() {
     backendReady &&
     databaseReady;
 
+  const siteName =
+    health.site &&
+    health.site !== "UNKNOWN"
+      ? health.site
+      : "UNKNOWN";
+
 
   // =========================================================
-  // FORM HANDLING
+  // FORM
   // =========================================================
 
   const handleInput = (event) => {
 
     setForm({
       ...form,
+
       [event.target.name]:
         event.target.value,
     });
@@ -288,7 +295,7 @@ function App() {
     if (!databaseReady) {
 
       setMessage(
-        "Database is not ready. Application is currently in standby mode."
+        "Database is not ready."
       );
 
       return;
@@ -351,7 +358,7 @@ function App() {
 
 
   // =========================================================
-  // START EDIT CUSTOMER
+  // EDIT CUSTOMER
   // =========================================================
 
   const startEdit = (customer) => {
@@ -380,11 +387,6 @@ function App() {
   const updateCustomer = async () => {
 
     if (!databaseReady) {
-
-      setMessage(
-        "Database is not ready. Application is currently in standby mode."
-      );
-
       return;
     }
 
@@ -451,11 +453,6 @@ function App() {
   const deleteCustomer = async (id) => {
 
     if (!databaseReady) {
-
-      setMessage(
-        "Database is not ready. Application is currently in standby mode."
-      );
-
       return;
     }
 
@@ -488,12 +485,13 @@ function App() {
         `Customer ID ${id} deleted successfully.`
       );
 
+
       await loadCustomers();
 
     } catch (error) {
 
       setMessage(
-        `Delete customer failed: ${error.message}`
+        `Delete failed: ${error.message}`
       );
 
     } finally {
@@ -509,22 +507,10 @@ function App() {
 
   const uploadDocument = async () => {
 
-    if (!databaseReady) {
-
-      setMessage(
-        "Database is not ready. Document transaction is disabled."
-      );
-
-      return;
-    }
-
-
-    if (!s3Ready) {
-
-      setMessage(
-        "Object Storage is not ready."
-      );
-
+    if (
+      !databaseReady ||
+      !s3Ready
+    ) {
       return;
     }
 
@@ -562,26 +548,25 @@ function App() {
 
 
       setMessage(
-        `${file.name} uploaded successfully to Ceph RGW.`
+        `${file.name} uploaded successfully.`
       );
 
 
       setFile(null);
 
 
-      const fileInput =
+      const input =
         document.getElementById(
           "fileInput"
         );
 
 
-      if (fileInput) {
-        fileInput.value = "";
+      if (input) {
+        input.value = "";
       }
 
 
       await loadDocuments();
-      await loadHealth();
 
     } catch (error) {
 
@@ -606,34 +591,21 @@ function App() {
       !databaseReady ||
       !s3Ready
     ) {
-
-      setMessage(
-        "Document service is not ready."
-      );
-
       return;
     }
-
-
-    const downloadUrl =
-      `${API_URL}/documents/${id}/download`;
 
 
     const link =
       document.createElement("a");
 
-
     link.href =
-      downloadUrl;
-
+      `${API_URL}/documents/${id}/download`;
 
     document.body.appendChild(
       link
     );
 
-
     link.click();
-
 
     document.body.removeChild(
       link
@@ -654,11 +626,6 @@ function App() {
       !databaseReady ||
       !s3Ready
     ) {
-
-      setMessage(
-        "Document service is not ready."
-      );
-
       return;
     }
 
@@ -682,7 +649,7 @@ function App() {
     if (!cleanFilename) {
 
       setMessage(
-        "New filename cannot be empty."
+        "Filename cannot be empty."
       );
 
       return;
@@ -750,18 +717,13 @@ function App() {
       !databaseReady ||
       !s3Ready
     ) {
-
-      setMessage(
-        "Document service is not ready."
-      );
-
       return;
     }
 
 
     const confirmed =
       window.confirm(
-        `Delete "${filename}"?\n\nThis will delete the object from Ceph RGW and remove its metadata from PostgreSQL.`
+        `Delete "${filename}"?\n\nThis will delete the S3 object and PostgreSQL metadata.`
       );
 
 
@@ -784,17 +746,16 @@ function App() {
 
 
       setMessage(
-        `${filename} deleted successfully from S3 and PostgreSQL.`
+        `${filename} deleted successfully.`
       );
 
 
       await loadDocuments();
-      await loadHealth();
 
     } catch (error) {
 
       setMessage(
-        `Delete document failed: ${error.message}`
+        `Delete failed: ${error.message}`
       );
 
     } finally {
@@ -805,7 +766,7 @@ function App() {
 
 
   // =========================================================
-  // REFRESH ALL
+  // REFRESH
   // =========================================================
 
   const refreshAll = async () => {
@@ -829,7 +790,6 @@ function App() {
           loadDocuments(),
         ]);
 
-
         setMessage(
           "Application data refreshed."
         );
@@ -839,17 +799,10 @@ function App() {
         setCustomers([]);
         setDocuments([]);
 
-
         setMessage(
           "Database is not ready. Application remains in standby mode."
         );
       }
-
-    } catch (error) {
-
-      setMessage(
-        `Refresh failed: ${error.message}`
-      );
 
     } finally {
 
@@ -867,9 +820,7 @@ function App() {
     <div className="app-shell">
 
 
-      {/* =====================================================
-          HEADER
-      ====================================================== */}
+      {/* HEADER */}
 
       <div className="hero-section">
 
@@ -898,8 +849,18 @@ function App() {
 
             <div className="text-end">
 
-              <span className="badge rounded-pill bg-success fs-6">
-                PRIMARY SITE
+              <span
+                className={
+                  backendReady
+                    ? "badge rounded-pill bg-success fs-6"
+                    : "badge rounded-pill bg-secondary fs-6"
+                }
+              >
+
+                {backendReady
+                  ? `CONNECTED TO ${siteName}`
+                  : "BACKEND NOT CONNECTED"}
+
               </span>
 
             </div>
@@ -911,23 +872,16 @@ function App() {
       </div>
 
 
-      {/* =====================================================
-          CONTENT
-      ====================================================== */}
+      {/* CONTENT */}
 
       <div className="container py-4">
 
-
-        {/* ===================================================
-            MESSAGE
-        ==================================================== */}
 
         {message && (
 
           <div className="alert alert-info alert-dismissible fade show">
 
             {message}
-
 
             <button
               type="button"
@@ -942,9 +896,7 @@ function App() {
         )}
 
 
-        {/* ===================================================
-            STATUS HEADER
-        ==================================================== */}
+        {/* STATUS */}
 
         <div className="d-flex justify-content-between align-items-center mb-3">
 
@@ -953,7 +905,6 @@ function App() {
             <h5 className="fw-bold mb-1">
               Infrastructure Status
             </h5>
-
 
             <div className="text-muted small">
               Live connectivity validation • Auto refresh every 5 seconds
@@ -973,12 +924,7 @@ function App() {
         </div>
 
 
-        {/* ===================================================
-            STATUS CARDS
-        ==================================================== */}
-
         <div className="row g-3 mb-4">
-
 
           <StatusCard
             title="Application"
@@ -988,9 +934,7 @@ function App() {
                 ? "RUNNING"
                 : "NOT READY"
             }
-            healthy={
-              backendReady
-            }
+            healthy={backendReady}
           />
 
 
@@ -1002,9 +946,7 @@ function App() {
                 ? "CONNECTED"
                 : "NOT READY"
             }
-            healthy={
-              databaseReady
-            }
+            healthy={databaseReady}
           />
 
 
@@ -1016,24 +958,19 @@ function App() {
                 ? "CONNECTED"
                 : "NOT READY"
             }
-            healthy={
-              s3Ready
-            }
+            healthy={s3Ready}
           />
 
         </div>
 
 
-        {/* ===================================================
-            STANDBY MODE
-        ==================================================== */}
+        {/* STANDBY */}
 
         {!applicationReady && (
 
           <div className="card standby-card shadow-sm mb-4">
 
             <div className="card-body text-center py-5 px-4">
-
 
               <div className="standby-icon mb-3">
                 ⏳
@@ -1058,11 +995,6 @@ function App() {
                     Backend service is currently unavailable.
                   </p>
 
-                  <p className="text-muted mb-4">
-                    Waiting for application backend connectivity.
-                  </p>
-
-
                   <span className="badge bg-danger standby-badge">
                     BACKEND NOT READY
                   </span>
@@ -1074,12 +1006,12 @@ function App() {
                 <>
 
                   <p className="standby-description mb-2">
-                    Application services are running, but the database is not ready.
+                    Backend is running on {siteName}, but the database is not ready.
                   </p>
 
 
                   <p className="text-muted mb-4">
-                    Waiting for DR database activation, re-IP, and PostgreSQL connectivity.
+                    Waiting for DR database activation and connectivity.
                   </p>
 
 
@@ -1097,7 +1029,6 @@ function App() {
 
               <div className="row justify-content-center g-3 mt-1">
 
-
                 <StandbyDependency
                   title="Frontend"
                   status="RUNNING"
@@ -1109,12 +1040,10 @@ function App() {
                   title="Backend"
                   status={
                     backendReady
-                      ? "RUNNING"
+                      ? `${siteName} RUNNING`
                       : "NOT READY"
                   }
-                  healthy={
-                    backendReady
-                  }
+                  healthy={backendReady}
                 />
 
 
@@ -1125,9 +1054,7 @@ function App() {
                       ? "CONNECTED"
                       : "WAITING"
                   }
-                  healthy={
-                    databaseReady
-                  }
+                  healthy={databaseReady}
                 />
 
 
@@ -1138,9 +1065,7 @@ function App() {
                       ? "CONNECTED"
                       : "NOT READY"
                   }
-                  healthy={
-                    s3Ready
-                  }
+                  healthy={s3Ready}
                 />
 
               </div>
@@ -1161,25 +1086,18 @@ function App() {
         )}
 
 
-        {/* ===================================================
-            ACTIVE APPLICATION
-        ==================================================== */}
+        {/* ACTIVE APPLICATION */}
 
         {applicationReady && (
 
           <>
-
-
-            {/* =================================================
-                ACTIVE MODE BANNER
-            ================================================== */}
 
             <div className="active-banner mb-4">
 
               <div>
 
                 <div className="fw-bold">
-                  Application Active
+                  Application Active — {siteName}
                 </div>
 
                 <div className="small">
@@ -1196,21 +1114,15 @@ function App() {
             </div>
 
 
-            {/* =================================================
-                CUSTOMER SECTION
-            ================================================== */}
+            {/* CUSTOMER */}
 
             <div className="row g-4">
-
-
-              {/* CUSTOMER FORM */}
 
               <div className="col-lg-4">
 
                 <div className="card border-0 shadow-sm h-100">
 
                   <div className="card-body p-4">
-
 
                     <h5 className="fw-bold mb-1">
 
@@ -1230,7 +1142,6 @@ function App() {
                       Name
                     </label>
 
-
                     <input
                       className="form-control mb-3"
                       name="name"
@@ -1243,7 +1154,6 @@ function App() {
                     <label className="form-label">
                       Email
                     </label>
-
 
                     <input
                       className="form-control mb-3"
@@ -1258,7 +1168,6 @@ function App() {
                     <label className="form-label">
                       Company
                     </label>
-
 
                     <input
                       className="form-control mb-4"
@@ -1282,7 +1191,6 @@ function App() {
                     ) : (
 
                       <div className="d-flex gap-2">
-
 
                         <button
                           className="btn btn-primary flex-fill"
@@ -1312,14 +1220,11 @@ function App() {
               </div>
 
 
-              {/* CUSTOMER TABLE */}
-
               <div className="col-lg-8">
 
                 <div className="card border-0 shadow-sm">
 
                   <div className="card-body p-4">
-
 
                     <div className="d-flex justify-content-between align-items-center mb-3">
 
@@ -1328,7 +1233,6 @@ function App() {
                         <h5 className="fw-bold mb-1">
                           Customer Records
                         </h5>
-
 
                         <div className="text-muted small">
                           {customers.length} record(s) in PostgreSQL
@@ -1355,27 +1259,14 @@ function App() {
                         <thead>
 
                           <tr>
-
-                            <th>
-                              ID
-                            </th>
-
-                            <th>
-                              Name
-                            </th>
-
-                            <th>
-                              Email
-                            </th>
-
-                            <th>
-                              Company
-                            </th>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Company</th>
 
                             <th className="text-end">
                               Action
                             </th>
-
                           </tr>
 
                         </thead>
@@ -1403,7 +1294,6 @@ function App() {
 
                                 <tr key={customer.id}>
 
-
                                   <td>
 
                                     <span className="id-badge">
@@ -1417,11 +1307,9 @@ function App() {
                                     {customer.name}
                                   </td>
 
-
                                   <td>
                                     {customer.email}
                                   </td>
-
 
                                   <td>
                                     {customer.company}
@@ -1430,13 +1318,10 @@ function App() {
 
                                   <td className="text-end">
 
-
                                     <button
                                       className="btn btn-outline-primary btn-sm me-2"
                                       onClick={() =>
-                                        startEdit(
-                                          customer
-                                        )
+                                        startEdit(customer)
                                       }
                                       disabled={loading}
                                     >
@@ -1480,26 +1365,19 @@ function App() {
             </div>
 
 
-            {/* =================================================
-                DOCUMENT SECTION
-            ================================================== */}
+            {/* DOCUMENT */}
 
             <div className="card border-0 shadow-sm mt-4">
 
               <div className="card-body p-4">
 
-
-                {/* DOCUMENT HEADER */}
-
                 <div className="row align-items-center mb-4">
-
 
                   <div className="col-lg-6">
 
                     <h5 className="fw-bold mb-1">
                       Document Validation
                     </h5>
-
 
                     <p className="text-muted small mb-0">
                       PostgreSQL metadata vs Ceph RGW object availability
@@ -1511,7 +1389,6 @@ function App() {
                   <div className="col-lg-6 mt-3 mt-lg-0">
 
                     <div className="input-group">
-
 
                       <input
                         id="fileInput"
@@ -1550,13 +1427,11 @@ function App() {
                 {!s3Ready && (
 
                   <div className="alert alert-warning">
-                    Ceph RGW is not ready. Document operations are temporarily unavailable.
+                    Ceph RGW is not ready.
                   </div>
 
                 )}
 
-
-                {/* DOCUMENT TABLE */}
 
                 <div className="table-responsive">
 
@@ -1565,39 +1440,17 @@ function App() {
                     <thead>
 
                       <tr>
-
-                        <th>
-                          ID
-                        </th>
-
-                        <th>
-                          Filename
-                        </th>
-
-                        <th>
-                          Bucket
-                        </th>
-
-                        <th>
-                          Object Key
-                        </th>
-
-                        <th>
-                          DB
-                        </th>
-
-                        <th>
-                          S3
-                        </th>
-
-                        <th>
-                          Consistency
-                        </th>
+                        <th>ID</th>
+                        <th>Filename</th>
+                        <th>Bucket</th>
+                        <th>Object Key</th>
+                        <th>DB</th>
+                        <th>S3</th>
+                        <th>Consistency</th>
 
                         <th className="text-end">
                           Action
                         </th>
-
                       </tr>
 
                     </thead>
@@ -1624,7 +1477,6 @@ function App() {
                           (doc) => (
 
                             <tr key={doc.id}>
-
 
                               <td>
                                 {doc.id}
@@ -1668,11 +1520,9 @@ function App() {
                                       : "badge bg-danger"
                                   }
                                 >
-
                                   {doc.s3_object
                                     ? "AVAILABLE"
                                     : "MISSING"}
-
                                 </span>
 
                               </td>
@@ -1682,15 +1532,12 @@ function App() {
 
                                 <span
                                   className={
-                                    doc.status ===
-                                    "CONSISTENT"
+                                    doc.status === "CONSISTENT"
                                       ? "badge bg-success"
                                       : "badge bg-danger"
                                   }
                                 >
-
                                   {doc.status}
-
                                 </span>
 
                               </td>
@@ -1699,7 +1546,6 @@ function App() {
                               <td className="text-end">
 
                                 <div className="d-flex justify-content-end gap-2 flex-wrap">
-
 
                                   <button
                                     className="btn btn-outline-success btn-sm"
@@ -1770,10 +1616,7 @@ function App() {
                 </div>
 
 
-                {/* DOCUMENT FOOTER */}
-
                 <div className="d-flex justify-content-between align-items-center mt-3">
-
 
                   <div className="text-muted small">
                     {documents.length} document(s) registered
@@ -1799,16 +1642,8 @@ function App() {
         )}
 
 
-        {/* ===================================================
-            FOOTER
-        ==================================================== */}
-
         <div className="text-center text-muted small py-4">
-
-          DR Validation Portal
-          {" • "}
-          OpenShift Container Platform
-
+          DR Validation Portal • OpenShift Container Platform
         </div>
 
       </div>
@@ -1845,11 +1680,9 @@ function StatusCard({
                 {subtitle}
               </div>
 
-
               <h5 className="fw-bold mt-1 mb-2">
                 {title}
               </h5>
-
 
               <span
                 className={
@@ -1858,9 +1691,7 @@ function StatusCard({
                     : "badge bg-danger"
                 }
               >
-
                 ● {status}
-
               </span>
 
             </div>
@@ -1904,7 +1735,6 @@ function StandbyDependency({
         <div className="standby-dependency-title">
           {title}
         </div>
-
 
         <div
           className={
