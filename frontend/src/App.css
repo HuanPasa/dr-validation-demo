@@ -52,6 +52,12 @@ body {
 }
 
 
+.site-badge {
+  padding: 10px 15px;
+  letter-spacing: 0.3px;
+}
+
+
 /* =========================================================
    CARDS
 ========================================================= */
@@ -66,6 +72,12 @@ body {
 }
 
 
+.status-card-content {
+  min-width: 0;
+  flex: 1;
+}
+
+
 /* =========================================================
    STATUS INDICATOR
 ========================================================= */
@@ -73,7 +85,11 @@ body {
 .status-indicator {
   width: 13px;
   height: 13px;
+
+  min-width: 13px;
+
   border-radius: 50%;
+
   margin-top: 5px;
 }
 
@@ -93,6 +109,38 @@ body {
   box-shadow:
     0 0 0 6px
     rgba(220, 53, 69, 0.12);
+}
+
+
+/* =========================================================
+   STATUS DETAILS
+========================================================= */
+
+.status-details {
+  margin-top: 14px;
+
+  padding-top: 11px;
+
+  border-top:
+    1px solid
+    #eef0f4;
+
+  color: #687386;
+
+  font-size: 0.78rem;
+}
+
+
+.status-detail-item {
+  margin-top: 4px;
+
+  word-break:
+    break-word;
+}
+
+
+.status-detail-item:first-child {
+  margin-top: 0;
 }
 
 
@@ -133,6 +181,7 @@ body {
 
 .standby-description {
   color: #3f4858;
+
   font-size: 1rem;
 }
 
@@ -166,6 +215,79 @@ body {
     32px
     0
     22px;
+}
+
+
+/* =========================================================
+   STANDBY DATABASE INFO
+========================================================= */
+
+.standby-db-info {
+  display: flex;
+
+  justify-content: center;
+
+  gap: 12px;
+
+  flex-wrap: wrap;
+
+  margin-top: 18px;
+}
+
+
+.standby-db-info > div {
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 4px;
+
+  min-width: 180px;
+
+  padding:
+    12px
+    18px;
+
+  background:
+    rgba(
+      255,
+      255,
+      255,
+      0.72
+    );
+
+  border:
+    1px solid
+    rgba(
+      148,
+      163,
+      184,
+      0.22
+    );
+
+  border-radius: 10px;
+}
+
+
+.standby-db-info span {
+  color: #7c8596;
+
+  font-size: 0.7rem;
+
+  font-weight: 700;
+
+  text-transform: uppercase;
+
+  letter-spacing: 0.5px;
+}
+
+
+.standby-db-info strong {
+  color: #374151;
+
+  font-size: 0.85rem;
+
+  word-break: break-word;
 }
 
 
@@ -245,6 +367,8 @@ body {
   width: 8px;
   height: 8px;
 
+  min-width: 8px;
+
   border-radius: 50%;
 
   display: inline-block;
@@ -304,6 +428,7 @@ body {
 @keyframes standbyPulse {
 
   0% {
+
     box-shadow:
       0 0 0 0
       rgba(
@@ -314,7 +439,9 @@ body {
       );
   }
 
+
   70% {
+
     box-shadow:
       0 0 0 8px
       rgba(
@@ -325,7 +452,9 @@ body {
       );
   }
 
+
   100% {
+
     box-shadow:
       0 0 0 0
       rgba(
@@ -468,6 +597,7 @@ table tbody td {
 
 .btn {
   border-radius: 8px;
+
   font-weight: 500;
 }
 
@@ -497,6 +627,15 @@ table tbody td {
   }
 
 
+  .site-badge {
+    font-size: 0.75rem !important;
+
+    padding:
+      8px
+      10px;
+  }
+
+
   .standby-icon {
     font-size: 2.8rem;
   }
@@ -516,5 +655,17 @@ table tbody td {
 
     padding-right:
       18px !important;
+  }
+
+
+  .standby-db-info {
+    flex-direction: column;
+
+    align-items: stretch;
+  }
+
+
+  .standby-db-info > div {
+    min-width: 0;
   }
 }

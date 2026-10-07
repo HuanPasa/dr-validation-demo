@@ -140,6 +140,18 @@ def health():
                 "UNKNOWN"
             ),
 
+        "db_host":
+            os.getenv(
+                "DB_HOST",
+                "UNKNOWN"
+            ),
+
+        "db_name":
+            os.getenv(
+                "DB_NAME",
+                "UNKNOWN"
+            ),
+
         "database":
             "NOT READY",
 
