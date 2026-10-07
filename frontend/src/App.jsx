@@ -1219,7 +1219,7 @@ function App() {
 
               <p className="mb-0 hero-subtitle">
 
-                Container Application • PostgreSQL • Ceph RGW
+                Container Application • PostgreSQL • S3 Storage
 
               </p>
 
@@ -1381,7 +1381,7 @@ function App() {
 
             title="Object Storage"
 
-            subtitle="Ceph RGW S3"
+            subtitle="S3 Storage"
 
             status={
               s3Ready
@@ -2064,7 +2064,7 @@ function App() {
 
                     <p className="text-muted small mb-0">
 
-                      PostgreSQL metadata vs Ceph RGW object availability
+                      PostgreSQL metadata vs S3 object availability
 
                     </p>
 
@@ -2129,7 +2129,7 @@ function App() {
 
                   <div className="alert alert-warning">
 
-                    Ceph RGW is not ready. Document operations are temporarily unavailable.
+                    S3 Storage is not ready. Document operations are temporarily unavailable.
 
                   </div>
 
