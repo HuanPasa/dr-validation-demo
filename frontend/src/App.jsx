@@ -1,9 +1,21 @@
 import { useEffect, useState } from "react";
 
+
+// =========================================================
+// BACKEND API
+// PR #2 NANTI: dipindahkan ke runtime ConfigMap
+// =========================================================
+
 const API_URL =
   "http://backend-dr-demo.apps.bpsocp.beint.local";
 
+
 function App() {
+
+  // =========================================================
+  // STATE
+  // =========================================================
+
   const [health, setHealth] = useState({
     application: "Loading",
     database: "Loading",
@@ -20,7 +32,6 @@ function App() {
   });
 
   const [editingId, setEditingId] = useState(null);
-
   const [file, setFile] = useState(null);
 
   const [loading, setLoading] = useState(false);
@@ -32,23 +43,37 @@ function App() {
   // =========================================================
 
   const request = async (url, options = {}) => {
-    const response = await fetch(url, options);
+
+    const response = await fetch(
+      url,
+      options
+    );
 
     if (!response.ok) {
-      let errorMessage = `HTTP ${response.status}`;
+
+      let errorMessage =
+        `HTTP ${response.status}`;
 
       try {
-        const errorData = await response.json();
+
+        const errorData =
+          await response.json();
 
         if (errorData.detail) {
-          errorMessage = errorData.detail;
+          errorMessage =
+            errorData.detail;
         }
+
       } catch {
+
         errorMessage =
           `${response.status} ${response.statusText}`;
+
       }
 
-      throw new Error(errorMessage);
+      throw new Error(
+        errorMessage
+      );
     }
 
     return response.json();
@@ -60,21 +85,35 @@ function App() {
   // =========================================================
 
   const loadHealth = async () => {
+
     try {
+
       const data = await request(
         `${API_URL}/health`
       );
 
       setHealth(data);
 
-    } catch (error) {
-      console.error(error);
+      return data;
 
-      setHealth({
+    } catch (error) {
+
+      console.error(
+        "Health check failed:",
+        error
+      );
+
+      const failedHealth = {
         application: "FAILED",
         database: "FAILED",
         s3: "FAILED",
-      });
+      };
+
+      setHealth(
+        failedHealth
+      );
+
+      return failedHealth;
     }
   };
 
@@ -84,7 +123,9 @@ function App() {
   // =========================================================
 
   const loadCustomers = async () => {
+
     try {
+
       const data = await request(
         `${API_URL}/customer`
       );
@@ -92,7 +133,11 @@ function App() {
       setCustomers(data);
 
     } catch (error) {
-      console.error(error);
+
+      console.error(
+        "Load customers failed:",
+        error
+      );
     }
   };
 
@@ -102,7 +147,9 @@ function App() {
   // =========================================================
 
   const loadDocuments = async () => {
+
     try {
+
       const data = await request(
         `${API_URL}/documents/verify`
       );
@@ -110,20 +157,100 @@ function App() {
       setDocuments(data);
 
     } catch (error) {
-      console.error(error);
+
+      console.error(
+        "Load documents failed:",
+        error
+      );
     }
   };
 
 
   // =========================================================
-  // INITIAL LOAD
+  // AUTOMATIC HEALTH CHECK
+  //
+  // - Check setiap 5 detik
+  // - Kalau DB CONNECTED:
+  //     load customer + documents
+  // - Kalau DB belum ready:
+  //     standby mode
   // =========================================================
 
   useEffect(() => {
-    loadHealth();
-    loadCustomers();
-    loadDocuments();
+
+    let active = true;
+
+    const checkApplication = async () => {
+
+      const currentHealth =
+        await loadHealth();
+
+      if (!active) {
+        return;
+      }
+
+      if (
+        currentHealth.database ===
+        "CONNECTED"
+      ) {
+
+        await Promise.all([
+          loadCustomers(),
+          loadDocuments(),
+        ]);
+
+      } else {
+
+        // Jangan tampilkan stale data
+        // ketika DB DR belum ready.
+        setCustomers([]);
+        setDocuments([]);
+      }
+    };
+
+
+    // Check langsung ketika page dibuka
+    checkApplication();
+
+
+    // Check otomatis setiap 5 detik
+    const interval = setInterval(
+      checkApplication,
+      5000
+    );
+
+
+    return () => {
+
+      active = false;
+
+      clearInterval(
+        interval
+      );
+    };
+
   }, []);
+
+
+  // =========================================================
+  // STATUS HELPERS
+  // =========================================================
+
+  const backendReady =
+    health.application ===
+    "DR Validation Backend";
+
+  const databaseReady =
+    health.database ===
+    "CONNECTED";
+
+  const s3Ready =
+    health.s3 ===
+    "CONNECTED";
+
+  const applicationReady =
+    backendReady &&
+    databaseReady;
 
 
   // =========================================================
@@ -131,14 +258,17 @@ function App() {
   // =========================================================
 
   const handleInput = (event) => {
+
     setForm({
       ...form,
-      [event.target.name]: event.target.value,
+      [event.target.name]:
+        event.target.value,
     });
   };
 
 
   const resetForm = () => {
+
     setForm({
       name: "",
       email: "",
@@ -154,11 +284,23 @@ function App() {
   // =========================================================
 
   const createCustomer = async () => {
+
+    if (!databaseReady) {
+
+      setMessage(
+        "Database is not ready. Application is currently in standby mode."
+      );
+
+      return;
+    }
+
+
     if (
       !form.name ||
       !form.email ||
       !form.company
     ) {
+
       setMessage(
         "Please complete all customer fields."
       );
@@ -166,14 +308,18 @@ function App() {
       return;
     }
 
+
     try {
+
       setLoading(true);
 
-      const params = new URLSearchParams({
-        name: form.name,
-        email: form.email,
-        company: form.company,
-      });
+      const params =
+        new URLSearchParams({
+          name: form.name,
+          email: form.email,
+          company: form.company,
+        });
+
 
       await request(
         `${API_URL}/customer?${params.toString()}`,
@@ -181,6 +327,7 @@ function App() {
           method: "POST",
         }
       );
+
 
       setMessage(
         "Customer created successfully."
@@ -191,11 +338,13 @@ function App() {
       await loadCustomers();
 
     } catch (error) {
+
       setMessage(
         `Create failed: ${error.message}`
       );
 
     } finally {
+
       setLoading(false);
     }
   };
@@ -206,7 +355,10 @@ function App() {
   // =========================================================
 
   const startEdit = (customer) => {
-    setEditingId(customer.id);
+
+    setEditingId(
+      customer.id
+    );
 
     setForm({
       name: customer.name,
@@ -226,11 +378,23 @@ function App() {
   // =========================================================
 
   const updateCustomer = async () => {
+
+    if (!databaseReady) {
+
+      setMessage(
+        "Database is not ready. Application is currently in standby mode."
+      );
+
+      return;
+    }
+
+
     if (
       !form.name ||
       !form.email ||
       !form.company
     ) {
+
       setMessage(
         "Please complete all customer fields."
       );
@@ -238,14 +402,18 @@ function App() {
       return;
     }
 
+
     try {
+
       setLoading(true);
 
-      const params = new URLSearchParams({
-        name: form.name,
-        email: form.email,
-        company: form.company,
-      });
+      const params =
+        new URLSearchParams({
+          name: form.name,
+          email: form.email,
+          company: form.company,
+        });
+
 
       await request(
         `${API_URL}/customer/${editingId}?${params.toString()}`,
@@ -253,6 +421,7 @@ function App() {
           method: "PUT",
         }
       );
+
 
       setMessage(
         "Customer updated successfully."
@@ -263,11 +432,13 @@ function App() {
       await loadCustomers();
 
     } catch (error) {
+
       setMessage(
         `Update failed: ${error.message}`
       );
 
     } finally {
+
       setLoading(false);
     }
   };
@@ -278,16 +449,32 @@ function App() {
   // =========================================================
 
   const deleteCustomer = async (id) => {
-    const confirmed = window.confirm(
-      `Delete customer ID ${id}?`
-    );
+
+    if (!databaseReady) {
+
+      setMessage(
+        "Database is not ready. Application is currently in standby mode."
+      );
+
+      return;
+    }
+
+
+    const confirmed =
+      window.confirm(
+        `Delete customer ID ${id}?`
+      );
+
 
     if (!confirmed) {
       return;
     }
 
+
     try {
+
       setLoading(true);
+
 
       await request(
         `${API_URL}/customer/${id}`,
@@ -296,6 +483,7 @@ function App() {
         }
       );
 
+
       setMessage(
         `Customer ID ${id} deleted successfully.`
       );
@@ -303,11 +491,13 @@ function App() {
       await loadCustomers();
 
     } catch (error) {
+
       setMessage(
         `Delete customer failed: ${error.message}`
       );
 
     } finally {
+
       setLoading(false);
     }
   };
@@ -318,7 +508,29 @@ function App() {
   // =========================================================
 
   const uploadDocument = async () => {
+
+    if (!databaseReady) {
+
+      setMessage(
+        "Database is not ready. Document transaction is disabled."
+      );
+
+      return;
+    }
+
+
+    if (!s3Ready) {
+
+      setMessage(
+        "Object Storage is not ready."
+      );
+
+      return;
+    }
+
+
     if (!file) {
+
       setMessage(
         "Please select a file first."
       );
@@ -326,15 +538,19 @@ function App() {
       return;
     }
 
+
     try {
+
       setLoading(true);
 
-      const formData = new FormData();
+      const formData =
+        new FormData();
 
       formData.append(
         "file",
         file
       );
+
 
       await request(
         `${API_URL}/upload`,
@@ -344,28 +560,37 @@ function App() {
         }
       );
 
+
       setMessage(
         `${file.name} uploaded successfully to Ceph RGW.`
       );
 
+
       setFile(null);
 
+
       const fileInput =
-        document.getElementById("fileInput");
+        document.getElementById(
+          "fileInput"
+        );
+
 
       if (fileInput) {
         fileInput.value = "";
       }
 
+
       await loadDocuments();
       await loadHealth();
 
     } catch (error) {
+
       setMessage(
         `Upload failed: ${error.message}`
       );
 
     } finally {
+
       setLoading(false);
     }
   };
@@ -376,19 +601,43 @@ function App() {
   // =========================================================
 
   const downloadDocument = (id) => {
+
+    if (
+      !databaseReady ||
+      !s3Ready
+    ) {
+
+      setMessage(
+        "Document service is not ready."
+      );
+
+      return;
+    }
+
+
     const downloadUrl =
       `${API_URL}/documents/${id}/download`;
+
 
     const link =
       document.createElement("a");
 
-    link.href = downloadUrl;
 
-    document.body.appendChild(link);
+    link.href =
+      downloadUrl;
+
+
+    document.body.appendChild(
+      link
+    );
+
 
     link.click();
 
-    document.body.removeChild(link);
+
+    document.body.removeChild(
+      link
+    );
   };
 
 
@@ -400,19 +649,38 @@ function App() {
     id,
     currentFilename
   ) => {
-    const newFilename = window.prompt(
-      "Enter new filename:",
-      currentFilename
-    );
+
+    if (
+      !databaseReady ||
+      !s3Ready
+    ) {
+
+      setMessage(
+        "Document service is not ready."
+      );
+
+      return;
+    }
+
+
+    const newFilename =
+      window.prompt(
+        "Enter new filename:",
+        currentFilename
+      );
+
 
     if (newFilename === null) {
       return;
     }
 
+
     const cleanFilename =
       newFilename.trim();
 
+
     if (!cleanFilename) {
+
       setMessage(
         "New filename cannot be empty."
       );
@@ -420,20 +688,26 @@ function App() {
       return;
     }
 
+
     if (
-      cleanFilename === currentFilename
+      cleanFilename ===
+      currentFilename
     ) {
       return;
     }
 
+
     try {
+
       setLoading(true);
+
 
       const params =
         new URLSearchParams({
           new_filename:
             cleanFilename,
         });
+
 
       await request(
         `${API_URL}/documents/${id}/rename?${params.toString()}`,
@@ -442,18 +716,22 @@ function App() {
         }
       );
 
+
       setMessage(
         `"${currentFilename}" renamed to "${cleanFilename}".`
       );
 
+
       await loadDocuments();
 
     } catch (error) {
+
       setMessage(
         `Rename failed: ${error.message}`
       );
 
     } finally {
+
       setLoading(false);
     }
   };
@@ -467,17 +745,35 @@ function App() {
     id,
     filename
   ) => {
+
+    if (
+      !databaseReady ||
+      !s3Ready
+    ) {
+
+      setMessage(
+        "Document service is not ready."
+      );
+
+      return;
+    }
+
+
     const confirmed =
       window.confirm(
         `Delete "${filename}"?\n\nThis will delete the object from Ceph RGW and remove its metadata from PostgreSQL.`
       );
 
+
     if (!confirmed) {
       return;
     }
 
+
     try {
+
       setLoading(true);
+
 
       await request(
         `${API_URL}/documents/${id}`,
@@ -486,19 +782,23 @@ function App() {
         }
       );
 
+
       setMessage(
         `${filename} deleted successfully from S3 and PostgreSQL.`
       );
+
 
       await loadDocuments();
       await loadHealth();
 
     } catch (error) {
+
       setMessage(
         `Delete document failed: ${error.message}`
       );
 
     } finally {
+
       setLoading(false);
     }
   };
@@ -509,31 +809,53 @@ function App() {
   // =========================================================
 
   const refreshAll = async () => {
+
     try {
+
       setLoading(true);
 
-      await Promise.all([
-        loadHealth(),
-        loadCustomers(),
-        loadDocuments(),
-      ]);
+
+      const currentHealth =
+        await loadHealth();
+
+
+      if (
+        currentHealth.database ===
+        "CONNECTED"
+      ) {
+
+        await Promise.all([
+          loadCustomers(),
+          loadDocuments(),
+        ]);
+
+
+        setMessage(
+          "Application data refreshed."
+        );
+
+      } else {
+
+        setCustomers([]);
+        setDocuments([]);
+
+
+        setMessage(
+          "Database is not ready. Application remains in standby mode."
+        );
+      }
+
+    } catch (error) {
 
       setMessage(
-        "Application data refreshed."
+        `Refresh failed: ${error.message}`
       );
 
     } finally {
+
       setLoading(false);
     }
   };
-
-
-  // =========================================================
-  // STATUS HELPER
-  // =========================================================
-
-  const isConnected = (value) =>
-    value === "CONNECTED";
 
 
   // =========================================================
@@ -541,7 +863,9 @@ function App() {
   // =========================================================
 
   return (
+
     <div className="app-shell">
+
 
       {/* =====================================================
           HEADER
@@ -559,9 +883,11 @@ function App() {
                 OpenShift Application Validation
               </div>
 
+
               <h1 className="fw-bold mb-1">
                 DR Validation Portal
               </h1>
+
 
               <p className="mb-0 hero-subtitle">
                 Container Application • PostgreSQL VM • Ceph RGW
@@ -592,13 +918,16 @@ function App() {
       <div className="container py-4">
 
 
-        {/* MESSAGE */}
+        {/* ===================================================
+            MESSAGE
+        ==================================================== */}
 
         {message && (
 
           <div className="alert alert-info alert-dismissible fade show">
 
             {message}
+
 
             <button
               type="button"
@@ -613,7 +942,9 @@ function App() {
         )}
 
 
-        {/* STATUS HEADER */}
+        {/* ===================================================
+            STATUS HEADER
+        ==================================================== */}
 
         <div className="d-flex justify-content-between align-items-center mb-3">
 
@@ -623,8 +954,9 @@ function App() {
               Infrastructure Status
             </h5>
 
+
             <div className="text-muted small">
-              Live connectivity validation
+              Live connectivity validation • Auto refresh every 5 seconds
             </div>
 
           </div>
@@ -641,22 +973,23 @@ function App() {
         </div>
 
 
-        {/* STATUS CARDS */}
+        {/* ===================================================
+            STATUS CARDS
+        ==================================================== */}
 
         <div className="row g-3 mb-4">
+
 
           <StatusCard
             title="Application"
             subtitle="FastAPI Backend"
             status={
-              health.application ===
-              "DR Validation Backend"
+              backendReady
                 ? "RUNNING"
-                : health.application
+                : "NOT READY"
             }
             healthy={
-              health.application ===
-              "DR Validation Backend"
+              backendReady
             }
           />
 
@@ -664,11 +997,13 @@ function App() {
           <StatusCard
             title="Database"
             subtitle="PostgreSQL VM"
-            status={health.database}
+            status={
+              databaseReady
+                ? "CONNECTED"
+                : "NOT READY"
+            }
             healthy={
-              isConnected(
-                health.database
-              )
+              databaseReady
             }
           />
 
@@ -676,11 +1011,13 @@ function App() {
           <StatusCard
             title="Object Storage"
             subtitle="Ceph RGW S3"
-            status={health.s3}
+            status={
+              s3Ready
+                ? "CONNECTED"
+                : "NOT READY"
+            }
             healthy={
-              isConnected(
-                health.s3
-              )
+              s3Ready
             }
           />
 
@@ -688,108 +1025,132 @@ function App() {
 
 
         {/* ===================================================
-            CUSTOMER SECTION
+            STANDBY MODE
         ==================================================== */}
 
-        <div className="row g-4">
+        {!applicationReady && (
+
+          <div className="card standby-card shadow-sm mb-4">
+
+            <div className="card-body text-center py-5 px-4">
 
 
-          {/* CUSTOMER FORM */}
-
-          <div className="col-lg-4">
-
-            <div className="card border-0 shadow-sm h-100">
-
-              <div className="card-body p-4">
-
-                <h5 className="fw-bold mb-1">
-
-                  {editingId
-                    ? "Edit Customer"
-                    : "Add Customer"}
-
-                </h5>
+              <div className="standby-icon mb-3">
+                ⏳
+              </div>
 
 
-                <p className="text-muted small mb-4">
-                  PostgreSQL transaction validation
-                </p>
+              <div className="standby-label mb-2">
+                DISASTER RECOVERY STANDBY
+              </div>
 
 
-                <label className="form-label">
-                  Name
-                </label>
+              <h2 className="fw-bold mb-3">
+                Application Standby
+              </h2>
 
-                <input
-                  className="form-control mb-3"
-                  name="name"
-                  value={form.name}
-                  onChange={handleInput}
-                  placeholder="Customer name"
+
+              {!backendReady ? (
+
+                <>
+
+                  <p className="standby-description mb-2">
+                    Backend service is currently unavailable.
+                  </p>
+
+                  <p className="text-muted mb-4">
+                    Waiting for application backend connectivity.
+                  </p>
+
+
+                  <span className="badge bg-danger standby-badge">
+                    BACKEND NOT READY
+                  </span>
+
+                </>
+
+              ) : (
+
+                <>
+
+                  <p className="standby-description mb-2">
+                    Application services are running, but the database is not ready.
+                  </p>
+
+
+                  <p className="text-muted mb-4">
+                    Waiting for DR database activation, re-IP, and PostgreSQL connectivity.
+                  </p>
+
+
+                  <span className="badge bg-warning text-dark standby-badge">
+                    DATABASE NOT READY
+                  </span>
+
+                </>
+
+              )}
+
+
+              <div className="standby-separator" />
+
+
+              <div className="row justify-content-center g-3 mt-1">
+
+
+                <StandbyDependency
+                  title="Frontend"
+                  status="RUNNING"
+                  healthy={true}
                 />
 
 
-                <label className="form-label">
-                  Email
-                </label>
-
-                <input
-                  className="form-control mb-3"
-                  name="email"
-                  type="email"
-                  value={form.email}
-                  onChange={handleInput}
-                  placeholder="customer@example.com"
+                <StandbyDependency
+                  title="Backend"
+                  status={
+                    backendReady
+                      ? "RUNNING"
+                      : "NOT READY"
+                  }
+                  healthy={
+                    backendReady
+                  }
                 />
 
 
-                <label className="form-label">
-                  Company
-                </label>
-
-                <input
-                  className="form-control mb-4"
-                  name="company"
-                  value={form.company}
-                  onChange={handleInput}
-                  placeholder="Company"
+                <StandbyDependency
+                  title="Database"
+                  status={
+                    databaseReady
+                      ? "CONNECTED"
+                      : "WAITING"
+                  }
+                  healthy={
+                    databaseReady
+                  }
                 />
 
 
-                {!editingId ? (
+                <StandbyDependency
+                  title="Object Storage"
+                  status={
+                    s3Ready
+                      ? "CONNECTED"
+                      : "NOT READY"
+                  }
+                  healthy={
+                    s3Ready
+                  }
+                />
 
-                  <button
-                    className="btn btn-primary w-100"
-                    onClick={createCustomer}
-                    disabled={loading}
-                  >
-                    Create Customer
-                  </button>
-
-                ) : (
-
-                  <div className="d-flex gap-2">
-
-                    <button
-                      className="btn btn-primary flex-fill"
-                      onClick={updateCustomer}
-                      disabled={loading}
-                    >
-                      Save Changes
-                    </button>
+              </div>
 
 
-                    <button
-                      className="btn btn-outline-secondary"
-                      onClick={resetForm}
-                      disabled={loading}
-                    >
-                      Cancel
-                    </button>
+              <div className="standby-auto-check mt-4">
 
-                  </div>
+                <span className="standby-pulse" />
 
-                )}
+                Connectivity is checked automatically every 5 seconds.
 
               </div>
 
@@ -797,44 +1158,405 @@ function App() {
 
           </div>
 
+        )}
 
-          {/* CUSTOMER TABLE */}
 
-          <div className="col-lg-8">
+        {/* ===================================================
+            ACTIVE APPLICATION
+        ==================================================== */}
 
-            <div className="card border-0 shadow-sm">
+        {applicationReady && (
 
-              <div className="card-body p-4">
+          <>
 
-                <div className="d-flex justify-content-between align-items-center mb-3">
 
-                  <div>
+            {/* =================================================
+                ACTIVE MODE BANNER
+            ================================================== */}
+
+            <div className="active-banner mb-4">
+
+              <div>
+
+                <div className="fw-bold">
+                  Application Active
+                </div>
+
+                <div className="small">
+                  Database connectivity is available and application transactions are enabled.
+                </div>
+
+              </div>
+
+
+              <span className="badge bg-success fs-6">
+                READY
+              </span>
+
+            </div>
+
+
+            {/* =================================================
+                CUSTOMER SECTION
+            ================================================== */}
+
+            <div className="row g-4">
+
+
+              {/* CUSTOMER FORM */}
+
+              <div className="col-lg-4">
+
+                <div className="card border-0 shadow-sm h-100">
+
+                  <div className="card-body p-4">
+
 
                     <h5 className="fw-bold mb-1">
-                      Customer Records
+
+                      {editingId
+                        ? "Edit Customer"
+                        : "Add Customer"}
+
                     </h5>
 
-                    <div className="text-muted small">
 
-                      {customers.length}
-                      {" "}
-                      record(s) in PostgreSQL
+                    <p className="text-muted small mb-4">
+                      PostgreSQL transaction validation
+                    </p>
+
+
+                    <label className="form-label">
+                      Name
+                    </label>
+
+
+                    <input
+                      className="form-control mb-3"
+                      name="name"
+                      value={form.name}
+                      onChange={handleInput}
+                      placeholder="Customer name"
+                    />
+
+
+                    <label className="form-label">
+                      Email
+                    </label>
+
+
+                    <input
+                      className="form-control mb-3"
+                      name="email"
+                      type="email"
+                      value={form.email}
+                      onChange={handleInput}
+                      placeholder="customer@example.com"
+                    />
+
+
+                    <label className="form-label">
+                      Company
+                    </label>
+
+
+                    <input
+                      className="form-control mb-4"
+                      name="company"
+                      value={form.company}
+                      onChange={handleInput}
+                      placeholder="Company"
+                    />
+
+
+                    {!editingId ? (
+
+                      <button
+                        className="btn btn-primary w-100"
+                        onClick={createCustomer}
+                        disabled={loading}
+                      >
+                        Create Customer
+                      </button>
+
+                    ) : (
+
+                      <div className="d-flex gap-2">
+
+
+                        <button
+                          className="btn btn-primary flex-fill"
+                          onClick={updateCustomer}
+                          disabled={loading}
+                        >
+                          Save Changes
+                        </button>
+
+
+                        <button
+                          className="btn btn-outline-secondary"
+                          onClick={resetForm}
+                          disabled={loading}
+                        >
+                          Cancel
+                        </button>
+
+                      </div>
+
+                    )}
+
+                  </div>
+
+                </div>
+
+              </div>
+
+
+              {/* CUSTOMER TABLE */}
+
+              <div className="col-lg-8">
+
+                <div className="card border-0 shadow-sm">
+
+                  <div className="card-body p-4">
+
+
+                    <div className="d-flex justify-content-between align-items-center mb-3">
+
+                      <div>
+
+                        <h5 className="fw-bold mb-1">
+                          Customer Records
+                        </h5>
+
+
+                        <div className="text-muted small">
+                          {customers.length} record(s) in PostgreSQL
+                        </div>
+
+                      </div>
+
+
+                      <button
+                        className="btn btn-outline-primary btn-sm"
+                        onClick={loadCustomers}
+                        disabled={loading}
+                      >
+                        Refresh
+                      </button>
+
+                    </div>
+
+
+                    <div className="table-responsive">
+
+                      <table className="table align-middle">
+
+                        <thead>
+
+                          <tr>
+
+                            <th>
+                              ID
+                            </th>
+
+                            <th>
+                              Name
+                            </th>
+
+                            <th>
+                              Email
+                            </th>
+
+                            <th>
+                              Company
+                            </th>
+
+                            <th className="text-end">
+                              Action
+                            </th>
+
+                          </tr>
+
+                        </thead>
+
+
+                        <tbody>
+
+                          {customers.length === 0 ? (
+
+                            <tr>
+
+                              <td
+                                colSpan="5"
+                                className="text-center text-muted py-4"
+                              >
+                                No customer records
+                              </td>
+
+                            </tr>
+
+                          ) : (
+
+                            customers.map(
+                              (customer) => (
+
+                                <tr key={customer.id}>
+
+
+                                  <td>
+
+                                    <span className="id-badge">
+                                      {customer.id}
+                                    </span>
+
+                                  </td>
+
+
+                                  <td className="fw-semibold">
+                                    {customer.name}
+                                  </td>
+
+
+                                  <td>
+                                    {customer.email}
+                                  </td>
+
+
+                                  <td>
+                                    {customer.company}
+                                  </td>
+
+
+                                  <td className="text-end">
+
+
+                                    <button
+                                      className="btn btn-outline-primary btn-sm me-2"
+                                      onClick={() =>
+                                        startEdit(
+                                          customer
+                                        )
+                                      }
+                                      disabled={loading}
+                                    >
+                                      Edit
+                                    </button>
+
+
+                                    <button
+                                      className="btn btn-outline-danger btn-sm"
+                                      onClick={() =>
+                                        deleteCustomer(
+                                          customer.id
+                                        )
+                                      }
+                                      disabled={loading}
+                                    >
+                                      Delete
+                                    </button>
+
+                                  </td>
+
+                                </tr>
+
+                              )
+                            )
+
+                          )}
+
+                        </tbody>
+
+                      </table>
 
                     </div>
 
                   </div>
 
+                </div>
 
-                  <button
-                    className="btn btn-outline-primary btn-sm"
-                    onClick={loadCustomers}
-                    disabled={loading}
-                  >
-                    Refresh
-                  </button>
+              </div>
+
+            </div>
+
+
+            {/* =================================================
+                DOCUMENT SECTION
+            ================================================== */}
+
+            <div className="card border-0 shadow-sm mt-4">
+
+              <div className="card-body p-4">
+
+
+                {/* DOCUMENT HEADER */}
+
+                <div className="row align-items-center mb-4">
+
+
+                  <div className="col-lg-6">
+
+                    <h5 className="fw-bold mb-1">
+                      Document Validation
+                    </h5>
+
+
+                    <p className="text-muted small mb-0">
+                      PostgreSQL metadata vs Ceph RGW object availability
+                    </p>
+
+                  </div>
+
+
+                  <div className="col-lg-6 mt-3 mt-lg-0">
+
+                    <div className="input-group">
+
+
+                      <input
+                        id="fileInput"
+                        type="file"
+                        className="form-control"
+                        onChange={(event) =>
+                          setFile(
+                            event.target.files[0]
+                          )
+                        }
+                        disabled={
+                          loading ||
+                          !s3Ready
+                        }
+                      />
+
+
+                      <button
+                        className="btn btn-success"
+                        onClick={uploadDocument}
+                        disabled={
+                          loading ||
+                          !s3Ready
+                        }
+                      >
+                        Upload to S3
+                      </button>
+
+                    </div>
+
+                  </div>
 
                 </div>
 
+
+                {!s3Ready && (
+
+                  <div className="alert alert-warning">
+                    Ceph RGW is not ready. Document operations are temporarily unavailable.
+                  </div>
+
+                )}
+
+
+                {/* DOCUMENT TABLE */}
 
                 <div className="table-responsive">
 
@@ -843,14 +1565,39 @@ function App() {
                     <thead>
 
                       <tr>
-                        <th>ID</th>
-                        <th>Name</th>
-                        <th>Email</th>
-                        <th>Company</th>
+
+                        <th>
+                          ID
+                        </th>
+
+                        <th>
+                          Filename
+                        </th>
+
+                        <th>
+                          Bucket
+                        </th>
+
+                        <th>
+                          Object Key
+                        </th>
+
+                        <th>
+                          DB
+                        </th>
+
+                        <th>
+                          S3
+                        </th>
+
+                        <th>
+                          Consistency
+                        </th>
 
                         <th className="text-end">
                           Action
                         </th>
+
                       </tr>
 
                     </thead>
@@ -858,76 +1605,154 @@ function App() {
 
                     <tbody>
 
-                      {customers.length === 0 ? (
+                      {documents.length === 0 ? (
 
                         <tr>
 
                           <td
-                            colSpan="5"
+                            colSpan="8"
                             className="text-center text-muted py-4"
                           >
-                            No customer records
+                            No uploaded documents
                           </td>
 
                         </tr>
 
                       ) : (
 
-                        customers.map(
-                          (customer) => (
+                        documents.map(
+                          (doc) => (
 
-                            <tr key={customer.id}>
+                            <tr key={doc.id}>
+
+
+                              <td>
+                                {doc.id}
+                              </td>
+
+
+                              <td className="fw-semibold">
+                                {doc.filename}
+                              </td>
+
+
+                              <td>
+                                {doc.bucket}
+                              </td>
+
 
                               <td>
 
-                                <span className="id-badge">
-                                  {customer.id}
+                                <code className="object-key">
+                                  {doc.object_key}
+                                </code>
+
+                              </td>
+
+
+                              <td>
+
+                                <span className="badge bg-success">
+                                  PRESENT
                                 </span>
 
                               </td>
 
 
-                              <td className="fw-semibold">
-                                {customer.name}
+                              <td>
+
+                                <span
+                                  className={
+                                    doc.s3_object
+                                      ? "badge bg-success"
+                                      : "badge bg-danger"
+                                  }
+                                >
+
+                                  {doc.s3_object
+                                    ? "AVAILABLE"
+                                    : "MISSING"}
+
+                                </span>
+
                               </td>
 
 
                               <td>
-                                {customer.email}
-                              </td>
 
+                                <span
+                                  className={
+                                    doc.status ===
+                                    "CONSISTENT"
+                                      ? "badge bg-success"
+                                      : "badge bg-danger"
+                                  }
+                                >
 
-                              <td>
-                                {customer.company}
+                                  {doc.status}
+
+                                </span>
+
                               </td>
 
 
                               <td className="text-end">
 
-                                <button
-                                  className="btn btn-outline-primary btn-sm me-2"
-                                  onClick={() =>
-                                    startEdit(
-                                      customer
-                                    )
-                                  }
-                                  disabled={loading}
-                                >
-                                  Edit
-                                </button>
+                                <div className="d-flex justify-content-end gap-2 flex-wrap">
 
 
-                                <button
-                                  className="btn btn-outline-danger btn-sm"
-                                  onClick={() =>
-                                    deleteCustomer(
-                                      customer.id
-                                    )
-                                  }
-                                  disabled={loading}
-                                >
-                                  Delete
-                                </button>
+                                  <button
+                                    className="btn btn-outline-success btn-sm"
+                                    onClick={() =>
+                                      downloadDocument(
+                                        doc.id
+                                      )
+                                    }
+                                    disabled={
+                                      loading ||
+                                      !s3Ready ||
+                                      !doc.s3_object
+                                    }
+                                  >
+                                    Download
+                                  </button>
+
+
+                                  <button
+                                    className="btn btn-outline-primary btn-sm"
+                                    onClick={() =>
+                                      renameDocument(
+                                        doc.id,
+                                        doc.filename
+                                      )
+                                    }
+                                    disabled={
+                                      loading ||
+                                      !s3Ready ||
+                                      !doc.s3_object
+                                    }
+                                  >
+                                    Rename
+                                  </button>
+
+
+                                  <button
+                                    className="btn btn-outline-danger btn-sm"
+                                    onClick={() =>
+                                      deleteDocument(
+                                        doc.id,
+                                        doc.filename
+                                      )
+                                    }
+                                    disabled={
+                                      loading ||
+                                      !s3Ready
+                                    }
+                                  >
+                                    Delete
+                                  </button>
+
+                                </div>
 
                               </td>
 
@@ -944,64 +1769,23 @@ function App() {
 
                 </div>
 
-              </div>
 
-            </div>
+                {/* DOCUMENT FOOTER */}
 
-          </div>
-
-        </div>
+                <div className="d-flex justify-content-between align-items-center mt-3">
 
 
-        {/* ===================================================
-            DOCUMENT SECTION
-        ==================================================== */}
-
-        <div className="card border-0 shadow-sm mt-4">
-
-          <div className="card-body p-4">
-
-
-            {/* DOCUMENT HEADER */}
-
-            <div className="row align-items-center mb-4">
-
-              <div className="col-lg-6">
-
-                <h5 className="fw-bold mb-1">
-                  Document Validation
-                </h5>
-
-                <p className="text-muted small mb-0">
-                  PostgreSQL metadata vs Ceph RGW object availability
-                </p>
-
-              </div>
-
-
-              <div className="col-lg-6 mt-3 mt-lg-0">
-
-                <div className="input-group">
-
-                  <input
-                    id="fileInput"
-                    type="file"
-                    className="form-control"
-                    onChange={(event) =>
-                      setFile(
-                        event.target.files[0]
-                      )
-                    }
-                    disabled={loading}
-                  />
+                  <div className="text-muted small">
+                    {documents.length} document(s) registered
+                  </div>
 
 
                   <button
-                    className="btn btn-success"
-                    onClick={uploadDocument}
+                    className="btn btn-outline-primary btn-sm"
+                    onClick={loadDocuments}
                     disabled={loading}
                   >
-                    Upload to S3
+                    Verify Again
                   </button>
 
                 </div>
@@ -1010,250 +1794,9 @@ function App() {
 
             </div>
 
+          </>
 
-            {/* DOCUMENT TABLE */}
-
-            <div className="table-responsive">
-
-              <table className="table align-middle">
-
-                <thead>
-
-                  <tr>
-
-                    <th>ID</th>
-
-                    <th>
-                      Filename
-                    </th>
-
-                    <th>
-                      Bucket
-                    </th>
-
-                    <th>
-                      Object Key
-                    </th>
-
-                    <th>
-                      DB
-                    </th>
-
-                    <th>
-                      S3
-                    </th>
-
-                    <th>
-                      Consistency
-                    </th>
-
-                    <th className="text-end">
-                      Action
-                    </th>
-
-                  </tr>
-
-                </thead>
-
-
-                <tbody>
-
-                  {documents.length === 0 ? (
-
-                    <tr>
-
-                      <td
-                        colSpan="8"
-                        className="text-center text-muted py-4"
-                      >
-                        No uploaded documents
-                      </td>
-
-                    </tr>
-
-                  ) : (
-
-                    documents.map(
-                      (doc) => (
-
-                        <tr key={doc.id}>
-
-                          <td>
-                            {doc.id}
-                          </td>
-
-
-                          <td className="fw-semibold">
-
-                            {doc.filename}
-
-                          </td>
-
-
-                          <td>
-
-                            {doc.bucket}
-
-                          </td>
-
-
-                          <td>
-
-                            <code className="object-key">
-                              {doc.object_key}
-                            </code>
-
-                          </td>
-
-
-                          <td>
-
-                            <span className="badge bg-success">
-                              PRESENT
-                            </span>
-
-                          </td>
-
-
-                          <td>
-
-                            <span
-                              className={
-                                doc.s3_object
-                                  ? "badge bg-success"
-                                  : "badge bg-danger"
-                              }
-                            >
-
-                              {doc.s3_object
-                                ? "AVAILABLE"
-                                : "MISSING"}
-
-                            </span>
-
-                          </td>
-
-
-                          <td>
-
-                            <span
-                              className={
-                                doc.status ===
-                                "CONSISTENT"
-                                  ? "badge bg-success"
-                                  : "badge bg-danger"
-                              }
-                            >
-
-                              {doc.status}
-
-                            </span>
-
-                          </td>
-
-
-                          <td className="text-end">
-
-                            <div className="d-flex justify-content-end gap-2 flex-wrap">
-
-
-                              {/* DOWNLOAD */}
-
-                              <button
-                                className="btn btn-outline-success btn-sm"
-                                onClick={() =>
-                                  downloadDocument(
-                                    doc.id
-                                  )
-                                }
-                                disabled={
-                                  loading ||
-                                  !doc.s3_object
-                                }
-                              >
-                                Download
-                              </button>
-
-
-                              {/* RENAME */}
-
-                              <button
-                                className="btn btn-outline-primary btn-sm"
-                                onClick={() =>
-                                  renameDocument(
-                                    doc.id,
-                                    doc.filename
-                                  )
-                                }
-                                disabled={
-                                  loading ||
-                                  !doc.s3_object
-                                }
-                              >
-                                Rename
-                              </button>
-
-
-                              {/* DELETE */}
-
-                              <button
-                                className="btn btn-outline-danger btn-sm"
-                                onClick={() =>
-                                  deleteDocument(
-                                    doc.id,
-                                    doc.filename
-                                  )
-                                }
-                                disabled={loading}
-                              >
-                                Delete
-                              </button>
-
-
-                            </div>
-
-                          </td>
-
-                        </tr>
-
-                      )
-                    )
-
-                  )}
-
-                </tbody>
-
-              </table>
-
-            </div>
-
-
-            {/* DOCUMENT FOOTER */}
-
-            <div className="d-flex justify-content-between align-items-center mt-3">
-
-              <div className="text-muted small">
-
-                {documents.length}
-                {" "}
-                document(s) registered
-
-              </div>
-
-
-              <button
-                className="btn btn-outline-primary btn-sm"
-                onClick={loadDocuments}
-                disabled={loading}
-              >
-                Verify Again
-              </button>
-
-            </div>
-
-          </div>
-
-        </div>
+        )}
 
 
         {/* ===================================================
@@ -1302,9 +1845,11 @@ function StatusCard({
                 {subtitle}
               </div>
 
+
               <h5 className="fw-bold mt-1 mb-2">
                 {title}
               </h5>
+
 
               <span
                 className={
@@ -1336,7 +1881,54 @@ function StatusCard({
       </div>
 
     </div>
+  );
+}
 
+
+// =========================================================
+// STANDBY DEPENDENCY
+// =========================================================
+
+function StandbyDependency({
+  title,
+  status,
+  healthy,
+}) {
+
+  return (
+
+    <div className="col-6 col-md-3">
+
+      <div className="standby-dependency">
+
+        <div className="standby-dependency-title">
+          {title}
+        </div>
+
+
+        <div
+          className={
+            healthy
+              ? "standby-dependency-status healthy"
+              : "standby-dependency-status waiting"
+          }
+        >
+
+          <span
+            className={
+              healthy
+                ? "dependency-dot healthy"
+                : "dependency-dot waiting"
+            }
+          />
+
+          {status}
+
+        </div>
+
+      </div>
+
+    </div>
   );
 }
 

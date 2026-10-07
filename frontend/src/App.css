@@ -11,12 +11,23 @@ body {
     sans-serif;
 }
 
+
+/* =========================================================
+   APPLICATION
+========================================================= */
+
 .app-shell {
   min-height: 100vh;
 }
 
+
+/* =========================================================
+   HERO
+========================================================= */
+
 .hero-section {
   padding: 34px 0;
+
   background:
     linear-gradient(
       120deg,
@@ -24,8 +35,10 @@ body {
       #1e3a8a 55%,
       #2563eb 100%
     );
+
   color: white;
 }
+
 
 .hero-label {
   letter-spacing: 1.5px;
@@ -33,17 +46,29 @@ body {
   font-weight: 600;
 }
 
+
 .hero-subtitle {
   opacity: 0.8;
 }
+
+
+/* =========================================================
+   CARDS
+========================================================= */
 
 .card {
   border-radius: 14px;
 }
 
+
 .status-card {
   border-left: 4px solid #e6eaf0 !important;
 }
+
+
+/* =========================================================
+   STATUS INDICATOR
+========================================================= */
 
 .status-indicator {
   width: 13px;
@@ -52,71 +77,444 @@ body {
   margin-top: 5px;
 }
 
+
 .status-indicator.healthy {
   background: #198754;
-  box-shadow: 0 0 0 6px rgba(25, 135, 84, 0.12);
+
+  box-shadow:
+    0 0 0 6px
+    rgba(25, 135, 84, 0.12);
 }
+
 
 .status-indicator.unhealthy {
   background: #dc3545;
-  box-shadow: 0 0 0 6px rgba(220, 53, 69, 0.12);
+
+  box-shadow:
+    0 0 0 6px
+    rgba(220, 53, 69, 0.12);
 }
+
+
+/* =========================================================
+   STANDBY MODE
+========================================================= */
+
+.standby-card {
+  border:
+    1px solid
+    #f1d68a !important;
+
+  background:
+    linear-gradient(
+      135deg,
+      #fffef9 0%,
+      #fff9e8 100%
+    );
+}
+
+
+.standby-icon {
+  font-size: 3.4rem;
+  line-height: 1;
+}
+
+
+.standby-label {
+  color: #a16207;
+
+  font-size: 0.75rem;
+
+  font-weight: 800;
+
+  letter-spacing: 1.6px;
+}
+
+
+.standby-description {
+  color: #3f4858;
+  font-size: 1rem;
+}
+
+
+.standby-badge {
+  padding:
+    9px
+    15px;
+
+  border-radius: 30px;
+
+  font-size: 0.8rem;
+
+  letter-spacing: 0.5px;
+}
+
+
+.standby-separator {
+  width: 100%;
+  height: 1px;
+
+  background:
+    rgba(
+      120,
+      113,
+      108,
+      0.16
+    );
+
+  margin:
+    32px
+    0
+    22px;
+}
+
+
+/* =========================================================
+   STANDBY DEPENDENCIES
+========================================================= */
+
+.standby-dependency {
+  height: 100%;
+
+  background:
+    rgba(
+      255,
+      255,
+      255,
+      0.75
+    );
+
+  border:
+    1px solid
+    rgba(
+      148,
+      163,
+      184,
+      0.22
+    );
+
+  border-radius: 12px;
+
+  padding:
+    14px
+    12px;
+}
+
+
+.standby-dependency-title {
+  color: #687386;
+
+  font-size: 0.72rem;
+
+  font-weight: 700;
+
+  text-transform: uppercase;
+
+  letter-spacing: 0.6px;
+
+  margin-bottom: 7px;
+}
+
+
+.standby-dependency-status {
+  display: flex;
+
+  align-items: center;
+
+  justify-content: center;
+
+  gap: 7px;
+
+  font-size: 0.82rem;
+
+  font-weight: 700;
+}
+
+
+.standby-dependency-status.healthy {
+  color: #198754;
+}
+
+
+.standby-dependency-status.waiting {
+  color: #b45309;
+}
+
+
+.dependency-dot {
+  width: 8px;
+  height: 8px;
+
+  border-radius: 50%;
+
+  display: inline-block;
+}
+
+
+.dependency-dot.healthy {
+  background: #198754;
+
+  box-shadow:
+    0 0 0 4px
+    rgba(25, 135, 84, 0.10);
+}
+
+
+.dependency-dot.waiting {
+  background: #f59e0b;
+
+  box-shadow:
+    0 0 0 4px
+    rgba(245, 158, 11, 0.12);
+}
+
+
+/* =========================================================
+   STANDBY AUTO CHECK
+========================================================= */
+
+.standby-auto-check {
+  display: inline-flex;
+
+  align-items: center;
+
+  gap: 9px;
+
+  color: #7c8596;
+
+  font-size: 0.8rem;
+}
+
+
+.standby-pulse {
+  width: 8px;
+  height: 8px;
+
+  border-radius: 50%;
+
+  background: #f59e0b;
+
+  animation:
+    standbyPulse
+    1.5s
+    infinite;
+}
+
+
+@keyframes standbyPulse {
+
+  0% {
+    box-shadow:
+      0 0 0 0
+      rgba(
+        245,
+        158,
+        11,
+        0.35
+      );
+  }
+
+  70% {
+    box-shadow:
+      0 0 0 8px
+      rgba(
+        245,
+        158,
+        11,
+        0
+      );
+  }
+
+  100% {
+    box-shadow:
+      0 0 0 0
+      rgba(
+        245,
+        158,
+        11,
+        0
+      );
+  }
+}
+
+
+/* =========================================================
+   ACTIVE MODE
+========================================================= */
+
+.active-banner {
+  display: flex;
+
+  justify-content:
+    space-between;
+
+  align-items: center;
+
+  gap: 20px;
+
+  padding:
+    16px
+    20px;
+
+  border:
+    1px solid
+    rgba(
+      25,
+      135,
+      84,
+      0.20
+    );
+
+  border-radius: 12px;
+
+  background:
+    rgba(
+      25,
+      135,
+      84,
+      0.07
+    );
+
+  color: #146c43;
+}
+
+
+/* =========================================================
+   TABLE
+========================================================= */
 
 table thead th {
   color: #687386;
+
   font-size: 0.8rem;
+
   font-weight: 700;
+
   text-transform: uppercase;
+
   border-bottom-width: 1px;
 }
 
+
 table tbody td {
-  padding-top: 14px !important;
-  padding-bottom: 14px !important;
+  padding-top:
+    14px !important;
+
+  padding-bottom:
+    14px !important;
 }
+
+
+/* =========================================================
+   CUSTOMER ID
+========================================================= */
 
 .id-badge {
   display: inline-flex;
+
   justify-content: center;
+
   align-items: center;
+
   min-width: 34px;
+
   height: 28px;
+
   padding: 0 8px;
+
   background: #eef2ff;
+
   color: #3730a3;
+
   border-radius: 7px;
+
   font-weight: 700;
 }
 
+
+/* =========================================================
+   S3 OBJECT KEY
+========================================================= */
+
 .object-key {
   display: inline-block;
+
   max-width: 260px;
+
   overflow: hidden;
+
   text-overflow: ellipsis;
+
   vertical-align: middle;
+
   white-space: nowrap;
+
   color: #44546a;
 }
+
+
+/* =========================================================
+   FORM
+========================================================= */
 
 .form-control {
   border-radius: 9px;
 }
+
+
+/* =========================================================
+   BUTTON
+========================================================= */
 
 .btn {
   border-radius: 8px;
   font-weight: 500;
 }
 
+
+/* =========================================================
+   ALERT
+========================================================= */
+
 .alert {
   border-radius: 10px;
 }
 
+
+/* =========================================================
+   RESPONSIVE
+========================================================= */
+
 @media (max-width: 768px) {
+
   .hero-section {
     padding: 24px 0;
   }
 
+
   .hero-section h1 {
     font-size: 1.6rem;
+  }
+
+
+  .standby-icon {
+    font-size: 2.8rem;
+  }
+
+
+  .active-banner {
+    flex-direction: column;
+
+    align-items:
+      flex-start;
+  }
+
+
+  .standby-card .card-body {
+    padding-left:
+      18px !important;
+
+    padding-right:
+      18px !important;
   }
 }
